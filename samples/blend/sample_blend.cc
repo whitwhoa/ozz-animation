@@ -61,80 +61,166 @@ OZZ_OPTIONS_DECLARE_STRING(animation3,
                            "Path to the third animation (ozz archive format).",
                            "media/animation3.ozz", false)
 
-class BlendSampleApplication : public ozz::sample::Application {
+class BlendSampleApplication : public ozz::sample::Application 
+{
+private:
+    // Runtime skeleton.
+    ozz::animation::Skeleton skeleton_;
+
+    // Global blend ratio in range [0,1] that controls all blend parameters and
+    // synchronizes playback speeds. A value of 0 gives full weight to the first
+    // animation, and 1 to the last.
+    float blend_ratio_ = .3f;
+
+    // Switch to manual control of animations and blending parameters.
+    bool manual_ = false;
+
+    // The number of layers to blend.
+    static constexpr size_t kNumLayers = 3;
+
+    // Sampler structure contains all the data required to sample a single
+    // animation.
+    struct Sampler 
+    {
+        // Constructor, default initialization.
+        Sampler() : weight(1.f) {}
+
+        // Playback animation controller. This is a utility class that helps with
+        // controlling animation playback time.
+        ozz::sample::PlaybackController controller;
+
+        // Blending weight for the layer.
+        float weight;
+
+        // Runtime animation.
+        ozz::animation::Animation animation;
+
+        // Sampling context.
+        ozz::animation::SamplingJob::Context context;
+
+        // Buffer of local transforms as sampled from animation_.
+        ozz::vector<ozz::math::SoaTransform> locals;
+
+    } samplers_[kNumLayers];  // kNumLayers animations to blend.
+
+    // Blending job rest pose threshold.
+    float threshold_ = ozz::animation::BlendingJob().threshold;
+
+    // Buffer of local transforms which stores the blending result.
+    ozz::vector<ozz::math::SoaTransform> locals_;
+
+    // Buffer of model space matrices. These are computed by the local-to-model
+    // job after the blending stage.
+    ozz::vector<ozz::math::Float4x4> models_;
+
+
  protected:
-  // Updates current animation time and skeleton pose.
-  virtual bool OnUpdate(float _dt, float) {
-    // Updates blending parameters and synchronizes animations if control mode
-    // is not manual.
-    if (!manual_) {
-      UpdateRuntimeParameters();
+
+    virtual bool OnInitialize() 
+    {
+        // Reading skeleton.
+        if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) 
+            return false;
+        
+        const int num_joints = skeleton_.num_joints();
+        const int num_soa_joints = skeleton_.num_soa_joints();
+
+        // Reading animations.
+        const char* filenames[] = {OPTIONS_animation1, OPTIONS_animation2, OPTIONS_animation3};
+        static_assert(OZZ_ARRAY_SIZE(filenames) == kNumLayers, "Arrays mismatch.");
+        for (size_t i = 0; i < kNumLayers; ++i) 
+        {
+            Sampler& sampler = samplers_[i];
+
+            if (!ozz::sample::LoadAnimation(filenames[i], &sampler.animation))
+                return false;
+
+            // Allocates sampler runtime buffers.
+            sampler.locals.resize(num_soa_joints);
+
+            // Allocates a context that matches animation requirements.
+            sampler.context.Resize(num_joints);
+        }
+
+        // Allocates local space runtime buffers of blended data.
+        locals_.resize(num_soa_joints);
+
+        // Allocates model space runtime buffers of blended data.
+        models_.resize(num_joints);
+
+        return true;
     }
 
-    // Updates and samples all animations to their respective local space
-    // transform buffers.
-    for (auto& sampler : samplers_) {
-      // Updates animations time.
-      sampler.controller.Update(sampler.animation, _dt);
+    // Updates current animation time and skeleton pose.
+    virtual bool OnUpdate(float _dt, float) 
+    {
+        // Updates blending parameters and synchronizes animations if control mode
+        // is not manual.
+        if (!manual_)
+            UpdateRuntimeParameters();
 
-      // Early out if this sampler weight makes it irrelevant during blending.
-      if (sampler.weight <= 0.f) {
-        continue;
-      }
+        // Updates and samples all animations to their respective local space
+        // transform buffers.
+        for (auto& sampler : samplers_) 
+        {
+            // Updates animations time.
+            sampler.controller.Update(sampler.animation, _dt);
 
-      // Setup sampling job.
-      ozz::animation::SamplingJob sampling_job;
-      sampling_job.animation = &sampler.animation;
-      sampling_job.context = &sampler.context;
-      sampling_job.ratio = sampler.controller.time_ratio();
-      sampling_job.output = make_span(sampler.locals);
+            // Early out if this sampler weight makes it irrelevant during blending.
+            if (sampler.weight <= 0.f)
+                continue;
+        
+            // Setup sampling job.
+            ozz::animation::SamplingJob sampling_job;
+            sampling_job.animation = &sampler.animation;
+            sampling_job.context = &sampler.context;
+            sampling_job.ratio = sampler.controller.time_ratio();
+            sampling_job.output = make_span(sampler.locals);
 
-      // Samples animation.
-      if (!sampling_job.Run()) {
-        return false;
-      }
+            // Samples animation.
+            if (!sampling_job.Run())
+                return false;
+        }
+
+        // Blends animations.
+        // Blends the local spaces transforms computed by sampling all animations
+        // (1st stage just above), and outputs the result to the local space
+        // transform buffer locals_
+
+        // Prepares blending layers.
+        ozz::animation::BlendingJob::Layer layers[kNumLayers];
+        for (size_t i = 0; i < kNumLayers; ++i) 
+        {
+            layers[i].transform = make_span(samplers_[i].locals);
+            layers[i].weight = samplers_[i].weight;
+        }
+
+        // Setups blending job.
+        ozz::animation::BlendingJob blend_job;
+        blend_job.threshold = threshold_;
+        blend_job.layers = layers;
+        blend_job.rest_pose = skeleton_.joint_rest_poses();
+        blend_job.output = make_span(locals_);
+
+        // Blends.
+        if (!blend_job.Run())
+            return false;
+
+        // Converts from local space to model space matrices.
+        // Gets the output of the blending stage, and converts it to model space.
+
+        // Setup local-to-model conversion job.
+        ozz::animation::LocalToModelJob ltm_job;
+        ltm_job.skeleton = &skeleton_;
+        ltm_job.input = make_span(locals_);
+        ltm_job.output = make_span(models_);
+
+        // Runs ltm job.
+        if (!ltm_job.Run())
+            return false;
+
+        return true;
     }
-
-    // Blends animations.
-    // Blends the local spaces transforms computed by sampling all animations
-    // (1st stage just above), and outputs the result to the local space
-    // transform buffer locals_
-
-    // Prepares blending layers.
-    ozz::animation::BlendingJob::Layer layers[kNumLayers];
-    for (size_t i = 0; i < kNumLayers; ++i) {
-      layers[i].transform = make_span(samplers_[i].locals);
-      layers[i].weight = samplers_[i].weight;
-    }
-
-    // Setups blending job.
-    ozz::animation::BlendingJob blend_job;
-    blend_job.threshold = threshold_;
-    blend_job.layers = layers;
-    blend_job.rest_pose = skeleton_.joint_rest_poses();
-    blend_job.output = make_span(locals_);
-
-    // Blends.
-    if (!blend_job.Run()) {
-      return false;
-    }
-
-    // Converts from local space to model space matrices.
-    // Gets the output of the blending stage, and converts it to model space.
-
-    // Setup local-to-model conversion job.
-    ozz::animation::LocalToModelJob ltm_job;
-    ltm_job.skeleton = &skeleton_;
-    ltm_job.input = make_span(locals_);
-    ltm_job.output = make_span(models_);
-
-    // Runs ltm job.
-    if (!ltm_job.Run()) {
-      return false;
-    }
-
-    return true;
-  }
 
   // Computes blending weight and synchronizes playback speed when the "manual"
   // option is off.
@@ -172,42 +258,6 @@ class BlendSampleApplication : public ozz::sample::Application {
   virtual bool OnDisplay(ozz::sample::Renderer* _renderer) {
     return _renderer->DrawPosture(skeleton_, make_span(models_),
                                   ozz::math::Float4x4::identity());
-  }
-
-  virtual bool OnInitialize() {
-    // Reading skeleton.
-    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) {
-      return false;
-    }
-
-    const int num_joints = skeleton_.num_joints();
-    const int num_soa_joints = skeleton_.num_soa_joints();
-
-    // Reading animations.
-    const char* filenames[] = {OPTIONS_animation1, OPTIONS_animation2,
-                               OPTIONS_animation3};
-    static_assert(OZZ_ARRAY_SIZE(filenames) == kNumLayers, "Arrays mismatch.");
-    for (size_t i = 0; i < kNumLayers; ++i) {
-      Sampler& sampler = samplers_[i];
-
-      if (!ozz::sample::LoadAnimation(filenames[i], &sampler.animation)) {
-        return false;
-      }
-
-      // Allocates sampler runtime buffers.
-      sampler.locals.resize(num_soa_joints);
-
-      // Allocates a context that matches animation requirements.
-      sampler.context.Resize(num_joints);
-    }
-
-    // Allocates local space runtime buffers of blended data.
-    locals_.resize(num_soa_joints);
-
-    // Allocates model space runtime buffers of blended data.
-    models_.resize(num_joints);
-
-    return true;
   }
 
   virtual bool OnGui(ozz::sample::ImGui* _im_gui) {
@@ -266,53 +316,6 @@ class BlendSampleApplication : public ozz::sample::Application {
                                       ozz::math::Float4x4::identity(), _bound);
   }
 
- private:
-  // Runtime skeleton.
-  ozz::animation::Skeleton skeleton_;
-
-  // Global blend ratio in range [0,1] that controls all blend parameters and
-  // synchronizes playback speeds. A value of 0 gives full weight to the first
-  // animation, and 1 to the last.
-  float blend_ratio_ = .3f;
-
-  // Switch to manual control of animations and blending parameters.
-  bool manual_ = false;
-
-  // The number of layers to blend.
-  static constexpr size_t kNumLayers = 3;
-
-  // Sampler structure contains all the data required to sample a single
-  // animation.
-  struct Sampler {
-    // Constructor, default initialization.
-    Sampler() : weight(1.f) {}
-
-    // Playback animation controller. This is a utility class that helps with
-    // controlling animation playback time.
-    ozz::sample::PlaybackController controller;
-
-    // Blending weight for the layer.
-    float weight;
-
-    // Runtime animation.
-    ozz::animation::Animation animation;
-
-    // Sampling context.
-    ozz::animation::SamplingJob::Context context;
-
-    // Buffer of local transforms as sampled from animation_.
-    ozz::vector<ozz::math::SoaTransform> locals;
-  } samplers_[kNumLayers];  // kNumLayers animations to blend.
-
-  // Blending job rest pose threshold.
-  float threshold_ = ozz::animation::BlendingJob().threshold;
-
-  // Buffer of local transforms which stores the blending result.
-  ozz::vector<ozz::math::SoaTransform> locals_;
-
-  // Buffer of model space matrices. These are computed by the local-to-model
-  // job after the blending stage.
-  ozz::vector<ozz::math::Float4x4> models_;
 };
 
 int main(int _argc, const char** _argv) {

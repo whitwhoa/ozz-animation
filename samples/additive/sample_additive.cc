@@ -64,74 +64,188 @@ OZZ_OPTIONS_DECLARE_STRING(
     curl_animation, "Path to the additive curl animation (ozz archive format).",
     "media/animation_curl_additive.ozz", false)
 
-class AdditiveBlendSampleApplication : public ozz::sample::Application {
+class AdditiveBlendSampleApplication : public ozz::sample::Application 
+{
+ private:
+    // Runtime skeleton.
+    ozz::animation::Skeleton skeleton_;
+
+    // The number of additive layers to blend.
+    enum { kSplay, kCurl, kNumLayers };
+
+    // Runtime animation.
+    ozz::animation::Animation base_animation_;
+
+    // Per-joint weights used to define the base animation mask. Allows to remove
+    // hands from base animations.
+    ozz::vector<ozz::math::SimdFloat4> base_joint_weights_;
+
+    // Main animation controller. This is a utility class that helps with
+    // controlling animation playback time.
+    ozz::sample::PlaybackController controller_;
+
+    // Sampling context.
+    ozz::animation::SamplingJob::Context context_;
+
+    // Buffer of local transforms as sampled from main animation_.
+    ozz::vector<ozz::math::SoaTransform> main_locals_;
+
+    // Blending weight of the base animation layer.
+    float base_weight_ = 0.f;
+
+    // Poses of local transforms as sampled from curl and splay animations.
+    // They are sampled during initialization, as a single pose is used.
+    ozz::vector<ozz::math::SoaTransform> additive_locals_[kNumLayers];
+
+    // Blending weight of the additive animation layer.
+    float additive_weigths_[kNumLayers] = {.3f, .9f};
+
+    // Buffer of local transforms which stores the blending result.
+    ozz::vector<ozz::math::SoaTransform> locals_;
+
+    // Buffer of model space matrices. These are computed by the local-to-model
+    // job after the blending stage.
+    ozz::vector<ozz::math::Float4x4> models_;
+
+    // Automatically animates additive weights.
+    bool auto_animate_weights_ = true;
+
+
  protected:
-  // Updates current animation time and skeleton pose.
-  virtual bool OnUpdate(float _dt, float) {
-    // For the sample purpose, animates additive weights automatically so the
-    // hand moves.
-    if (auto_animate_weights_) {
-      AnimateWeights(_dt);
+    virtual bool OnInitialize() 
+    {
+        // Reading skeleton.
+        if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_))
+            return false;
+        
+        const int num_soa_joints = skeleton_.num_soa_joints();
+        const int num_joints = skeleton_.num_joints();
+
+        // Reads base animation.
+        if (!ozz::sample::LoadAnimation(OPTIONS_animation, &base_animation_))
+            return false;
+
+        if (num_joints != base_animation_.num_tracks()) 
+            return false;
+        
+
+        // Allocates sampling context.
+        context_.Resize(num_joints);
+
+        // Allocates local space runtime buffers for base animation.
+        main_locals_.resize(num_soa_joints);
+
+        // Allocates model space runtime buffers of blended data.
+        models_.resize(num_joints);
+
+        // Storage for blending stage output.
+        locals_.resize(num_soa_joints);
+
+        // Allocate and set base animation mask weights to one.
+        base_joint_weights_.resize(num_soa_joints, ozz::math::simd_float4::one());
+        SetJointWeights("Lefthand", 0.f);
+        SetJointWeights("RightHand", 0.f);
+
+        // Read and extract additive animation poses.
+        const char* filenames[] = {OPTIONS_splay_animation, OPTIONS_curl_animation};
+        for (size_t i = 0; i < kNumLayers; ++i) 
+        {
+            // Reads animation on the stack as it won't need to be maintained in
+            // memory. Only the pose is needed.
+            ozz::animation::Animation animation;
+            if (!ozz::sample::LoadAnimation(filenames[i], &animation))
+                return false;
+        
+            if (num_joints != animation.num_tracks())
+                return false;
+
+            // Allocates additive poses, aka buffers of Soa tranforms.
+            additive_locals_[i].resize(num_soa_joints);
+
+            // Samples the first frame pose.
+            ozz::animation::SamplingJob sampling_job;
+            sampling_job.animation = &animation;
+            sampling_job.context = &context_;
+            sampling_job.ratio = 0.f;  // Only needs the first frame pose
+            sampling_job.output = make_span(additive_locals_[i]);
+
+            // Samples animation.
+            if (!sampling_job.Run()) 
+                return false;
+        
+            // Invalidates context which will be re-used for another animation.
+            // This is usually not needed, animation address on the stack is the
+            // same each loop, hence creating an issue as animation content is
+            // changing.
+            context_.Invalidate();
+        }
+
+        return true;
     }
 
-    // Updates base animation time for main animation.
-    controller_.Update(base_animation_, _dt);
+    // Updates current animation time and skeleton pose.
+    virtual bool OnUpdate(float _dt, float) 
+    {
+        // For the sample purpose, animates additive weights automatically so the
+        // hand moves.
+        if (auto_animate_weights_)
+            AnimateWeights(_dt);
+        
+        // Updates base animation time for main animation.
+        controller_.Update(base_animation_, _dt);
 
-    // Setup sampling job.
-    ozz::animation::SamplingJob sampling_job;
-    sampling_job.animation = &base_animation_;
-    sampling_job.context = &context_;
-    sampling_job.ratio = controller_.time_ratio();
-    sampling_job.output = make_span(main_locals_);
+        // Setup sampling job.
+        ozz::animation::SamplingJob sampling_job;
+        sampling_job.animation = &base_animation_;
+        sampling_job.context = &context_;
+        sampling_job.ratio = controller_.time_ratio();
+        sampling_job.output = make_span(main_locals_);
 
-    // Samples animation.
-    if (!sampling_job.Run()) {
-      return false;
+        // Samples animation.
+        if (!sampling_job.Run())
+            return false;
+
+        // Setup blending job layers.
+
+        // Main animation is used as-is.
+        ozz::animation::BlendingJob::Layer layers[1];
+        layers[0].transform = make_span(main_locals_);
+        layers[0].weight = base_weight_;
+        layers[0].joint_weights = make_span(base_joint_weights_);
+
+        // The two additive layers (curl and splay) are blended on top of the main layer.
+        ozz::animation::BlendingJob::Layer additive_layers[kNumLayers];
+        for (size_t i = 0; i < kNumLayers; ++i) 
+        {
+            additive_layers[i].transform = make_span(additive_locals_[i]);
+            additive_layers[i].weight = additive_weigths_[i];
+        }
+
+        // Setups blending job.
+        ozz::animation::BlendingJob blend_job;
+        blend_job.layers = layers;
+        blend_job.additive_layers = additive_layers;
+        blend_job.rest_pose = skeleton_.joint_rest_poses();
+        blend_job.output = make_span(locals_);
+
+        // Blends.
+        if (!blend_job.Run())
+            return false;
+
+        // Gets the output of the blending stage, and converts it to model space.
+
+        // Setup local-to-model conversion job.
+        ozz::animation::LocalToModelJob ltm_job;
+        ltm_job.skeleton = &skeleton_;
+        ltm_job.input = make_span(locals_);
+        ltm_job.output = make_span(models_);
+
+        // Run ltm job.
+        if (!ltm_job.Run())
+            return false;
+
+        return true;
     }
-
-    // Setups blending job layers.
-
-    // Main animation is used as-is.
-    ozz::animation::BlendingJob::Layer layers[1];
-    layers[0].transform = make_span(main_locals_);
-    layers[0].weight = base_weight_;
-    layers[0].joint_weights = make_span(base_joint_weights_);
-
-    // The two additive layers (curl and splay) are blended on top of the main
-    // layer.
-    ozz::animation::BlendingJob::Layer additive_layers[kNumLayers];
-    for (size_t i = 0; i < kNumLayers; ++i) {
-      additive_layers[i].transform = make_span(additive_locals_[i]);
-      additive_layers[i].weight = additive_weigths_[i];
-    }
-
-    // Setups blending job.
-    ozz::animation::BlendingJob blend_job;
-    blend_job.layers = layers;
-    blend_job.additive_layers = additive_layers;
-    blend_job.rest_pose = skeleton_.joint_rest_poses();
-    blend_job.output = make_span(locals_);
-
-    // Blends.
-    if (!blend_job.Run()) {
-      return false;
-    }
-
-    // Gets the output of the blending stage, and converts it to model space.
-
-    // Setup local-to-model conversion job.
-    ozz::animation::LocalToModelJob ltm_job;
-    ltm_job.skeleton = &skeleton_;
-    ltm_job.input = make_span(locals_);
-    ltm_job.output = make_span(models_);
-
-    // Run ltm job.
-    if (!ltm_job.Run()) {
-      return false;
-    }
-
-    return true;
-  }
 
   void AnimateWeights(float _dt) {
     static float t = 0.f;
@@ -145,91 +259,21 @@ class AdditiveBlendSampleApplication : public ozz::sample::Application {
                                   ozz::math::Float4x4::identity());
   }
 
-  bool SetJointWeights(const char* _name, float _weight) {
+  bool SetJointWeights(const char* _name, float _weight) 
+  {
     const auto set_joint = [this, _weight](int _joint, int) {
       ozz::math::SimdFloat4& soa_weight = base_joint_weights_[_joint / 4];
-      soa_weight = ozz::math::SetI(
-          soa_weight, ozz::math::simd_float4::Load1(_weight), _joint % 4);
+      soa_weight = ozz::math::SetI(soa_weight, ozz::math::simd_float4::Load1(_weight), _joint % 4);
     };
 
     const int joint = FindJoint(skeleton_, _name);
-    if (joint >= 0) {
+    if (joint >= 0) 
+    {
       ozz::animation::IterateJointsDF(skeleton_, set_joint, joint);
       return true;
     }
+
     return false;
-  }
-
-  virtual bool OnInitialize() {
-    // Reading skeleton.
-    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) {
-      return false;
-    }
-    const int num_soa_joints = skeleton_.num_soa_joints();
-    const int num_joints = skeleton_.num_joints();
-
-    // Reads base animation.
-    if (!ozz::sample::LoadAnimation(OPTIONS_animation, &base_animation_)) {
-      return false;
-    }
-
-    if (num_joints != base_animation_.num_tracks()) {
-      return false;
-    }
-
-    // Allocates sampling context.
-    context_.Resize(num_joints);
-
-    // Allocates local space runtime buffers for base animation.
-    main_locals_.resize(num_soa_joints);
-
-    // Allocates model space runtime buffers of blended data.
-    models_.resize(num_joints);
-
-    // Storage for blending stage output.
-    locals_.resize(num_soa_joints);
-
-    // Allocates and sets base animation mask weights to one.
-    base_joint_weights_.resize(num_soa_joints, ozz::math::simd_float4::one());
-    SetJointWeights("Lefthand", 0.f);
-    SetJointWeights("RightHand", 0.f);
-
-    // Reads and extract additive animations pose.
-    const char* filenames[] = {OPTIONS_splay_animation, OPTIONS_curl_animation};
-    for (size_t i = 0; i < kNumLayers; ++i) {
-      // Reads animation on the stack as it won't need to be maintained in
-      // memory. Only the pose is needed.
-      ozz::animation::Animation animation;
-      if (!ozz::sample::LoadAnimation(filenames[i], &animation)) {
-        return false;
-      }
-
-      if (num_joints != animation.num_tracks()) {
-        return false;
-      }
-
-      // Allocates additive poses, aka buffers of Soa tranforms.
-      additive_locals_[i].resize(num_soa_joints);
-
-      // Samples the first frame pose.
-      ozz::animation::SamplingJob sampling_job;
-      sampling_job.animation = &animation;
-      sampling_job.context = &context_;
-      sampling_job.ratio = 0.f;  // Only needs the first frame pose
-      sampling_job.output = make_span(additive_locals_[i]);
-
-      // Samples animation.
-      if (!sampling_job.Run()) {
-        return false;
-      }
-
-      // Invalidates context which will be re-used for another animation.
-      // This is usually not needed, animation address on the stack is the same
-      // each loop, hence creating an issue as animation content is changing.
-      context_.Invalidate();
-    }
-
-    return true;
   }
 
   virtual bool OnGui(ozz::sample::ImGui* _im_gui) {
@@ -290,49 +334,6 @@ class AdditiveBlendSampleApplication : public ozz::sample::Application {
     }
   }
 
- private:
-  // Runtime skeleton.
-  ozz::animation::Skeleton skeleton_;
-
-  // The number of additive layers to blend.
-  enum { kSplay, kCurl, kNumLayers };
-
-  // Runtime animation.
-  ozz::animation::Animation base_animation_;
-
-  // Per-joint weights used to define the base animation mask. Allows to remove
-  // hands from base animations.
-  ozz::vector<ozz::math::SimdFloat4> base_joint_weights_;
-
-  // Main animation controller. This is a utility class that helps with
-  // controlling animation playback time.
-  ozz::sample::PlaybackController controller_;
-
-  // Sampling context.
-  ozz::animation::SamplingJob::Context context_;
-
-  // Buffer of local transforms as sampled from main animation_.
-  ozz::vector<ozz::math::SoaTransform> main_locals_;
-
-  // Blending weight of the base animation layer.
-  float base_weight_ = 0.f;
-
-  // Poses of local transforms as sampled from curl and splay animations.
-  // They are sampled during initialization, as a single pose is used.
-  ozz::vector<ozz::math::SoaTransform> additive_locals_[kNumLayers];
-
-  // Blending weight of the additive animation layer.
-  float additive_weigths_[kNumLayers] = {.3f, .9f};
-
-  // Buffer of local transforms which stores the blending result.
-  ozz::vector<ozz::math::SoaTransform> locals_;
-
-  // Buffer of model space matrices. These are computed by the local-to-model
-  // job after the blending stage.
-  ozz::vector<ozz::math::Float4x4> models_;
-
-  // Automatically animates additive weights.
-  bool auto_animate_weights_ = true;
 };
 
 int main(int _argc, const char** _argv) {

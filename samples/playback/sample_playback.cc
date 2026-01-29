@@ -40,117 +40,126 @@
 #include "ozz/options/options.h"
 
 // Skeleton archive can be specified as an option.
-OZZ_OPTIONS_DECLARE_STRING(skeleton,
-                           "Path to the skeleton (ozz archive format).",
-                           "media/skeleton.ozz", false)
+//OZZ_OPTIONS_DECLARE_STRING(skeleton,
+//                           "Path to the skeleton (ozz archive format).",
+//                           "media/skeleton.ozz", false)
 
 // Animation archive can be specified as an option.
-OZZ_OPTIONS_DECLARE_STRING(animation,
-                           "Path to the animation (ozz archive format).",
-                           "media/animation.ozz", false)
+//OZZ_OPTIONS_DECLARE_STRING(animation,
+//                           "Path to the animation (ozz archive format).",
+//                           "media/animation.ozz", false)
 
-class PlaybackSampleApplication : public ozz::sample::Application {
- protected:
-  // Updates current animation time and skeleton pose.
-  virtual bool OnUpdate(float _dt, float) {
-    // Updates current animation time.
-    controller_.Update(animation_, _dt);
 
-    // Samples optimized animation at t = animation_time_.
-    ozz::animation::SamplingJob sampling_job;
-    sampling_job.animation = &animation_;
-    sampling_job.context = &context_;
-    sampling_job.ratio = controller_.time_ratio();
-    sampling_job.output = make_span(locals_);
-    if (!sampling_job.Run()) {
-      return false;
+class PlaybackSampleApplication : public ozz::sample::Application 
+{
+private:
+
+    // Playback animation controller. This is a utility class that helps with
+    // controlling animation playback time.
+    ozz::sample::PlaybackController controller_;
+
+    // Runtime skeleton.
+    ozz::animation::Skeleton skeleton_;
+
+    // Runtime animation.
+    ozz::animation::Animation animation_;
+
+    // Sampling context.
+    ozz::animation::SamplingJob::Context context_;
+
+    // Buffer of local transforms as sampled from animation_.
+    ozz::vector<ozz::math::SoaTransform> locals_;
+
+    // Buffer of model space matrices.
+    ozz::vector<ozz::math::Float4x4> models_;
+
+
+protected:
+
+    virtual bool OnInitialize() 
+    {
+        // Reading skeleton.
+        const char* skeletonPath = "media/skeleton.ozz";
+        if (!ozz::sample::LoadSkeleton(skeletonPath, &skeleton_)) 
+            return false;
+
+        // Reading animation.
+        const char* animationPath = "media/animation.ozz";
+        if (!ozz::sample::LoadAnimation(animationPath, &animation_))
+          return false;
+
+        // Skeleton and animation needs to match.
+        if (skeleton_.num_joints() != animation_.num_tracks()) 
+            return false;
+
+        // Allocates runtime buffers.
+        const int num_soa_joints = skeleton_.num_soa_joints();
+        locals_.resize(num_soa_joints);
+        const int num_joints = skeleton_.num_joints();
+        models_.resize(num_joints);
+
+        // Allocates a context that matches animation requirements.
+        context_.Resize(num_joints);
+
+        return true;
     }
 
-    // Converts from local space to model space matrices.
-    ozz::animation::LocalToModelJob ltm_job;
-    ltm_job.skeleton = &skeleton_;
-    ltm_job.input = make_span(locals_);
-    ltm_job.output = make_span(models_);
-    if (!ltm_job.Run()) {
-      return false;
+    // Updates current animation time and skeleton pose.
+    virtual bool OnUpdate(float _dt, float) 
+    {
+        // Updates current animation time.
+        controller_.Update(animation_, _dt);
+
+        // Samples optimized animation at t = animation_time_.
+        ozz::animation::SamplingJob sampling_job;
+        sampling_job.animation = &animation_;
+        sampling_job.context = &context_;
+        sampling_job.ratio = controller_.time_ratio();
+        sampling_job.output = make_span(locals_);
+
+        if (!sampling_job.Run()) 
+            return false;
+
+        // Converts from local space to model space matrices.
+        ozz::animation::LocalToModelJob ltm_job;
+        ltm_job.skeleton = &skeleton_;
+        ltm_job.input = make_span(locals_);
+        ltm_job.output = make_span(models_);
+
+        if (!ltm_job.Run()) 
+            return false;
+
+        return true;
     }
 
-    return true;
+  virtual bool OnDisplay(ozz::sample::Renderer* _renderer) 
+  {
+    return _renderer->DrawPosture(skeleton_, make_span(models_), ozz::math::Float4x4::identity());
   }
 
-  virtual bool OnDisplay(ozz::sample::Renderer* _renderer) {
-    return _renderer->DrawPosture(skeleton_, make_span(models_),
-                                  ozz::math::Float4x4::identity());
-  }
-
-  virtual bool OnInitialize() {
-    // Reading skeleton.
-    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) {
-      return false;
-    }
-
-    // Reading animation.
-    if (!ozz::sample::LoadAnimation(OPTIONS_animation, &animation_)) {
-      return false;
-    }
-
-    // Skeleton and animation needs to match.
-    if (skeleton_.num_joints() != animation_.num_tracks()) {
-      return false;
-    }
-
-    // Allocates runtime buffers.
-    const int num_soa_joints = skeleton_.num_soa_joints();
-    locals_.resize(num_soa_joints);
-    const int num_joints = skeleton_.num_joints();
-    models_.resize(num_joints);
-
-    // Allocates a context that matches animation requirements.
-    context_.Resize(num_joints);
-
-    return true;
-  }
-
-  virtual bool OnGui(ozz::sample::ImGui* _im_gui) {
+  virtual bool OnGui(ozz::sample::ImGui* _im_gui) 
+  {
     // Exposes animation runtime playback controls.
     {
       static bool open = true;
       ozz::sample::ImGui::OpenClose oc(_im_gui, "Animation control", &open);
-      if (open) {
+
+      if (open) 
         controller_.OnGui(animation_, _im_gui);
-      }
     }
+
     return true;
   }
 
-  virtual void GetSceneBounds(ozz::math::Box* _bound) const {
-    ozz::sample::ComputePostureBounds(make_span(models_),
-                                      ozz::math::Float4x4::identity(), _bound);
+  virtual void GetSceneBounds(ozz::math::Box* _bound) const 
+  {
+    ozz::sample::ComputePostureBounds(make_span(models_), ozz::math::Float4x4::identity(), _bound);
   }
 
- private:
-  // Playback animation controller. This is a utility class that helps with
-  // controlling animation playback time.
-  ozz::sample::PlaybackController controller_;
-
-  // Runtime skeleton.
-  ozz::animation::Skeleton skeleton_;
-
-  // Runtime animation.
-  ozz::animation::Animation animation_;
-
-  // Sampling context.
-  ozz::animation::SamplingJob::Context context_;
-
-  // Buffer of local transforms as sampled from animation_.
-  ozz::vector<ozz::math::SoaTransform> locals_;
-
-  // Buffer of model space matrices.
-  ozz::vector<ozz::math::Float4x4> models_;
 };
 
-int main(int _argc, const char** _argv) {
-  const char* title =
-      "Ozz-animation sample: Binary animation/skeleton playback";
+int main(int _argc, const char** _argv) 
+{
+  const char* title = "Ozz-animation sample: Binary animation/skeleton playback";
   return PlaybackSampleApplication().Run(_argc, _argv, "1.0", title);
 }
