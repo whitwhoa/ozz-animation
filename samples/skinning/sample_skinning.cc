@@ -58,10 +58,108 @@ OZZ_OPTIONS_DECLARE_STRING(mesh,
                            "Path to the skinned mesh (ozz archive format).",
                            "media/mesh.ozz", false)
 
-class SkinningSampleApplication : public ozz::sample::Application {
+class SkinningSampleApplication : public ozz::sample::Application 
+{
+ private:
+  // Playback animation controller. This is a utility class that helps with
+  // controlling animation playback time.
+  ozz::sample::PlaybackController controller_;
+
+  // Runtime skeleton.
+  ozz::animation::Skeleton skeleton_;
+
+  // Runtime animation.
+  ozz::animation::Animation animation_;
+
+  // Sampling context.
+  ozz::animation::SamplingJob::Context context_;
+
+  // Buffer of local transforms as sampled from animation_.
+  ozz::vector<ozz::math::SoaTransform> locals_;
+
+  // Buffer of model space matrices.
+  ozz::vector<ozz::math::Float4x4> models_;
+
+  // Buffer of skinning matrices, result of the joint multiplication of the
+  // inverse bind pose with the model space matrix.
+  ozz::vector<ozz::math::Float4x4> skinning_matrices_;
+
+  // The mesh used by the sample.
+  ozz::vector<ozz::sample::Mesh> meshes_;
+
+  // Redering options.
+  bool draw_skeleton_ = false;
+  bool draw_mesh_ = true;
+
+  // Mesh rendering options.
+  ozz::sample::Renderer::Options render_options_;
+
  protected:
+
+    virtual bool OnInitialize() 
+    {
+        // Reading skeleton.
+        const char* skeletonPath = "media/skeleton.ozz";
+        if (!ozz::sample::LoadSkeleton(skeletonPath, &skeleton_)) 
+            return false;
+        
+        // Reading animation.
+        const char* animationPath = "media/animation.ozz";
+        if (!ozz::sample::LoadAnimation(animationPath, &animation_))
+          return false;
+
+        // Skeleton and animation needs to match.
+        if (skeleton_.num_joints() != animation_.num_tracks()) 
+        {
+          ozz::log::Err() << "The provided animation doesn't match skeleton (joint count mismatch)." << std::endl;
+          return false;
+        }
+
+        // Allocate runtime buffers.
+        const int num_soa_joints = skeleton_.num_soa_joints();
+        locals_.resize(num_soa_joints);
+        const int num_joints = skeleton_.num_joints();
+        models_.resize(num_joints);
+
+        // Allocate a context that matches animation requirements.
+        context_.Resize(num_joints);
+
+        // Reading skinned meshes.
+        const char* meshPath = "media/mesh.ozz";
+        if (!ozz::sample::LoadMeshes(meshPath, &meshes_))
+          return false;
+
+        // Computes the number of skinning matrices required to skin all meshes.
+        // A mesh is skinned by only a subset of joints, so the number of skinning
+        // matrices might be less that the number of skeleton joints.
+        // Mesh::joint_remaps is used to know how to order skinning matrices. So
+        // the number of matrices required is the size of joint_remaps.
+        size_t num_skinning_matrices = 0;
+        for (const ozz::sample::Mesh& mesh : meshes_) 
+        {
+          num_skinning_matrices = ozz::math::Max(num_skinning_matrices, mesh.joint_remaps.size());
+        }
+
+        // Allocates skinning matrices.
+        skinning_matrices_.resize(num_skinning_matrices);
+
+        // Check the skeleton matches with the mesh, especially that the mesh
+        // doesn't expect more joints than the skeleton has.
+        for (const ozz::sample::Mesh& mesh : meshes_) 
+        {
+          if (num_joints < mesh.highest_joint_index()) 
+          {
+            ozz::log::Err() << "The provided mesh doesn't match skeleton (joint count mismatch)." << std::endl;
+            return false;
+          }
+        }
+
+        return true;
+      }
+
   // Updates current animation time and skeleton pose.
-  virtual bool OnUpdate(float _dt, float) {
+  virtual bool OnUpdate(float _dt, float) 
+  {
     // Updates current animation time.
     controller_.Update(animation_, _dt);
 
@@ -113,67 +211,6 @@ class SkinningSampleApplication : public ozz::sample::Application {
       }
     }
     return success;
-  }
-
-  virtual bool OnInitialize() {
-    // Reading skeleton.
-    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) {
-      return false;
-    }
-
-    // Reading animation.
-    if (!ozz::sample::LoadAnimation(OPTIONS_animation, &animation_)) {
-      return false;
-    }
-
-    // Skeleton and animation needs to match.
-    if (skeleton_.num_joints() != animation_.num_tracks()) {
-      ozz::log::Err() << "The provided animation doesn't match skeleton "
-                         "(joint count mismatch)."
-                      << std::endl;
-      return false;
-    }
-
-    // Allocates runtime buffers.
-    const int num_soa_joints = skeleton_.num_soa_joints();
-    locals_.resize(num_soa_joints);
-    const int num_joints = skeleton_.num_joints();
-    models_.resize(num_joints);
-
-    // Allocates a context that matches animation requirements.
-    context_.Resize(num_joints);
-
-    // Reading skinned meshes.
-    if (!ozz::sample::LoadMeshes(OPTIONS_mesh, &meshes_)) {
-      return false;
-    }
-
-    // Computes the number of skinning matrices required to skin all meshes.
-    // A mesh is skinned by only a subset of joints, so the number of skinning
-    // matrices might be less that the number of skeleton joints.
-    // Mesh::joint_remaps is used to know how to order skinning matrices. So
-    // the number of matrices required is the size of joint_remaps.
-    size_t num_skinning_matrices = 0;
-    for (const ozz::sample::Mesh& mesh : meshes_) {
-      num_skinning_matrices =
-          ozz::math::Max(num_skinning_matrices, mesh.joint_remaps.size());
-    }
-
-    // Allocates skinning matrices.
-    skinning_matrices_.resize(num_skinning_matrices);
-
-    // Check the skeleton matches with the mesh, especially that the mesh
-    // doesn't expect more joints than the skeleton has.
-    for (const ozz::sample::Mesh& mesh : meshes_) {
-      if (num_joints < mesh.highest_joint_index()) {
-        ozz::log::Err() << "The provided mesh doesn't match skeleton "
-                           "(joint count mismatch)."
-                        << std::endl;
-        return false;
-      }
-    }
-
-    return true;
   }
 
   virtual bool OnGui(ozz::sample::ImGui* _im_gui) {
@@ -254,39 +291,7 @@ class SkinningSampleApplication : public ozz::sample::Application {
                                        ozz::math::Float4x4::identity(), _bound);
   }
 
- private:
-  // Playback animation controller. This is a utility class that helps with
-  // controlling animation playback time.
-  ozz::sample::PlaybackController controller_;
 
-  // Runtime skeleton.
-  ozz::animation::Skeleton skeleton_;
-
-  // Runtime animation.
-  ozz::animation::Animation animation_;
-
-  // Sampling context.
-  ozz::animation::SamplingJob::Context context_;
-
-  // Buffer of local transforms as sampled from animation_.
-  ozz::vector<ozz::math::SoaTransform> locals_;
-
-  // Buffer of model space matrices.
-  ozz::vector<ozz::math::Float4x4> models_;
-
-  // Buffer of skinning matrices, result of the joint multiplication of the
-  // inverse bind pose with the model space matrix.
-  ozz::vector<ozz::math::Float4x4> skinning_matrices_;
-
-  // The mesh used by the sample.
-  ozz::vector<ozz::sample::Mesh> meshes_;
-
-  // Redering options.
-  bool draw_skeleton_ = false;
-  bool draw_mesh_ = true;
-
-  // Mesh rendering options.
-  ozz::sample::Renderer::Options render_options_;
 };
 
 int main(int _argc, const char** _argv) {

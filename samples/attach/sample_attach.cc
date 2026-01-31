@@ -51,70 +51,46 @@ OZZ_OPTIONS_DECLARE_STRING(animation,
                            "Path to the animation (ozz archive format).",
                            "media/animation.ozz", false)
 
-class AttachSampleApplication : public ozz::sample::Application {
+class AttachSampleApplication : public ozz::sample::Application 
+{
+ private:
+  // Playback animation controller. This is a utility class that helps with
+  // controlling animation playback time.
+  ozz::sample::PlaybackController controller_;
+
+  // Runtime skeleton.
+  ozz::animation::Skeleton skeleton_;
+
+  // Runtime animation.
+  ozz::animation::Animation animation_;
+
+  // Sampling context.
+  ozz::animation::SamplingJob::Context context_;
+
+  // Buffer of local transforms as sampled from animation_.
+  ozz::vector<ozz::math::SoaTransform> locals_;
+
+  // Buffer of model space matrices.
+  ozz::vector<ozz::math::Float4x4> models_;
+
+  // Joint where the object is attached.
+  int attachment_ = 0;
+
+  // Offset, translation of the attached object from the joint.
+  ozz::math::Float3 offset_ = {-.02f, .03f, .05f};
+
+
  protected:
-  // Updates current animation time and skeleton pose.
-  virtual bool OnUpdate(float _dt, float) {
-    // Updates current animation time.
-    controller_.Update(animation_, _dt);
 
-    // Samples optimized animation at t = animation_time_.
-    ozz::animation::SamplingJob sampling_job;
-    sampling_job.animation = &animation_;
-    sampling_job.context = &context_;
-    sampling_job.ratio = controller_.time_ratio();
-    sampling_job.output = make_span(locals_);
-    if (!sampling_job.Run()) {
-      return false;
-    }
-
-    // Converts from local space to model space matrices.
-    ozz::animation::LocalToModelJob ltm_job;
-    ltm_job.skeleton = &skeleton_;
-    ltm_job.input = make_span(locals_);
-    ltm_job.output = make_span(models_);
-    if (!ltm_job.Run()) {
-      return false;
-    }
-
-    return true;
-  }
-
-  virtual bool OnDisplay(ozz::sample::Renderer* _renderer) {
-    if (!_renderer->DrawPosture(skeleton_, make_span(models_),
-                                ozz::math::Float4x4::identity())) {
-      return false;
-    }
-
-    // Prepares attached object transformation.
-    // Gets model space transformation of the joint.
-    const ozz::math::Float4x4& joint = models_[attachment_];
-
-    // Concatenates joint and offset transformations.
-    const ozz::math::Float4x4 transform =
-        joint * ozz::math::Float4x4::Translation(offset_);
-
-    // Prepare rendering.
-    const float thickness = .01f;
-    const float length = .5f;
-    const ozz::math::Box box(ozz::math::Float3(-thickness, -thickness, -length),
-                             ozz::math::Float3(thickness, thickness, 0.f));
-    const ozz::sample::Color colors[2] = {ozz::sample::kRed,
-                                          ozz::sample::kGreen};
-
-    return _renderer->DrawBoxIm(box, transform, colors);
-  }
-
-  virtual bool OnInitialize() {
+  virtual bool OnInitialize() 
+  {
     // Reading skeleton.
-    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) {
+    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_))
       return false;
-    }
 
     // Reading animation.
-    if (!ozz::sample::LoadAnimation(OPTIONS_animation, &animation_)) {
+    if (!ozz::sample::LoadAnimation(OPTIONS_animation, &animation_))
       return false;
-    }
 
     // Allocates runtime buffers.
     const int num_joints = skeleton_.num_joints();
@@ -127,11 +103,57 @@ class AttachSampleApplication : public ozz::sample::Application {
 
     // Finds the joint where the object should be attached.
     attachment_ = FindJoint(skeleton_, "LeftHandMiddle1");
-    if (attachment_ < 0) {
+    if (attachment_ < 0)
       return false;
-    }
 
     return true;
+  }
+
+  // Updates current animation time and skeleton pose.
+  virtual bool OnUpdate(float _dt, float) 
+  {
+    // Updates current animation time.
+    controller_.Update(animation_, _dt);
+
+    // Samples optimized animation at t = animation_time_.
+    ozz::animation::SamplingJob sampling_job;
+    sampling_job.animation = &animation_;
+    sampling_job.context = &context_;
+    sampling_job.ratio = controller_.time_ratio();
+    sampling_job.output = make_span(locals_);
+    if (!sampling_job.Run())
+      return false;
+
+    // Converts from local space to model space matrices.
+    ozz::animation::LocalToModelJob ltm_job;
+    ltm_job.skeleton = &skeleton_;
+    ltm_job.input = make_span(locals_);
+    ltm_job.output = make_span(models_);
+    if (!ltm_job.Run())
+      return false;
+
+    return true;
+  }
+
+  virtual bool OnDisplay(ozz::sample::Renderer* _renderer) 
+  {
+    if (!_renderer->DrawPosture(skeleton_, make_span(models_), ozz::math::Float4x4::identity()))
+      return false;
+
+    // Prepares attached object transformation.
+    // Gets model space transformation of the joint.
+    const ozz::math::Float4x4& joint = models_[attachment_];
+
+    // Concatenates joint and offset transformations.
+    const ozz::math::Float4x4 transform = joint * ozz::math::Float4x4::Translation(offset_);
+
+    // Prepare rendering.
+    const float thickness = .01f;
+    const float length = .5f;
+    const ozz::math::Box box(ozz::math::Float3(-thickness, -thickness, -length), ozz::math::Float3(thickness, thickness, 0.f));
+    const ozz::sample::Color colors[2] = {ozz::sample::kRed, ozz::sample::kGreen};
+
+    return _renderer->DrawBoxIm(box, transform, colors);
   }
 
   virtual bool OnGui(ozz::sample::ImGui* _im_gui) {
@@ -172,32 +194,6 @@ class AttachSampleApplication : public ozz::sample::Application {
     ozz::sample::ComputePostureBounds(make_span(models_),
                                       ozz::math::Float4x4::identity(), _bound);
   }
-
- private:
-  // Playback animation controller. This is a utility class that helps with
-  // controlling animation playback time.
-  ozz::sample::PlaybackController controller_;
-
-  // Runtime skeleton.
-  ozz::animation::Skeleton skeleton_;
-
-  // Runtime animation.
-  ozz::animation::Animation animation_;
-
-  // Sampling context.
-  ozz::animation::SamplingJob::Context context_;
-
-  // Buffer of local transforms as sampled from animation_.
-  ozz::vector<ozz::math::SoaTransform> locals_;
-
-  // Buffer of model space matrices.
-  ozz::vector<ozz::math::Float4x4> models_;
-
-  // Joint where the object is attached.
-  int attachment_ = 0;
-
-  // Offset, translation of the attached object from the joint.
-  ozz::math::Float3 offset_ = {-.02f, .03f, .05f};
 };
 
 int main(int _argc, const char** _argv) {
