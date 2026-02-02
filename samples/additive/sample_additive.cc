@@ -221,7 +221,7 @@ class AdditiveBlendSampleApplication : public ozz::sample::Application
             additive_layers[i].weight = additive_weigths_[i];
         }
 
-        // Setups blending job.
+        // Setup blending job.
         ozz::animation::BlendingJob blend_job;
         blend_job.layers = layers;
         blend_job.additive_layers = additive_layers;
