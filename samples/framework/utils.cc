@@ -284,20 +284,22 @@ void MultiplySoATransformQuaternion(
   ozz::math::Transpose4x4(&aos_quats->xyzw, &soa_transform_ref.rotation.x);
 }
 
-bool LoadSkeleton(const char* _filename, ozz::animation::Skeleton* _skeleton) {
+bool LoadSkeleton(const char* _filename, ozz::animation::Skeleton* _skeleton) 
+{
   assert(_filename && _skeleton);
-  ozz::log::Out() << "Loading skeleton archive " << _filename << "."
-                  << std::endl;
+
+  ozz::log::Out() << "Loading skeleton archive " << _filename << "." << std::endl;
   ozz::io::File file(_filename, "rb");
-  if (!file.opened()) {
-    ozz::log::Err() << "Failed to open skeleton file " << _filename << "."
-                    << std::endl;
+  if (!file.opened()) 
+  {
+    ozz::log::Err() << "Failed to open skeleton file " << _filename << "." << std::endl;
     return false;
   }
+
   ozz::io::IArchive archive(&file);
-  if (!archive.TestTag<ozz::animation::Skeleton>()) {
-    ozz::log::Err() << "Failed to load skeleton instance from file "
-                    << _filename << "." << std::endl;
+  if (!archive.TestTag<ozz::animation::Skeleton>()) 
+  {
+    ozz::log::Err() << "Failed to load skeleton instance from file " << _filename << "." << std::endl;
     return false;
   }
 
@@ -306,24 +308,26 @@ bool LoadSkeleton(const char* _filename, ozz::animation::Skeleton* _skeleton) {
     ProfileFctLog profile{"Skeleton loading time"};
     archive >> *_skeleton;
   }
+
   return true;
 }
 
-bool LoadAnimation(const char* _filename,
-                   ozz::animation::Animation* _animation) {
+bool LoadAnimation(const char* _filename, ozz::animation::Animation* _animation) 
+{
   assert(_filename && _animation);
-  ozz::log::Out() << "Loading animation archive: " << _filename << "."
-                  << std::endl;
+
+  ozz::log::Out() << "Loading animation archive: " << _filename << "." << std::endl;
   ozz::io::File file(_filename, "rb");
-  if (!file.opened()) {
-    ozz::log::Err() << "Failed to open animation file " << _filename << "."
-                    << std::endl;
+  if (!file.opened()) 
+  {
+    ozz::log::Err() << "Failed to open animation file " << _filename << "." << std::endl;
     return false;
   }
+
   ozz::io::IArchive archive(&file);
-  if (!archive.TestTag<ozz::animation::Animation>()) {
-    ozz::log::Err() << "Failed to load animation instance from file "
-                    << _filename << "." << std::endl;
+  if (!archive.TestTag<ozz::animation::Animation>()) 
+  {
+    ozz::log::Err() << "Failed to load animation instance from file " << _filename << "." << std::endl;
     return false;
   }
 
