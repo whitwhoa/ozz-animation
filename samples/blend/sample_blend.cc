@@ -224,11 +224,14 @@ private:
 
   // Computes blending weight and synchronizes playback speed when the "manual"
   // option is off.
-  void UpdateRuntimeParameters() {
+  void UpdateRuntimeParameters() 
+  {
     // Computes weight parameters for all samplers.
     const float kNumIntervals = kNumLayers - 1;
     const float kInterval = 1.f / kNumIntervals;
-    for (size_t i = 0; i < kNumLayers; ++i) {
+
+    for (size_t i = 0; i < kNumLayers; ++i) 
+    {
       const float med = i * kInterval;
       const float x = blend_ratio_ - med;
       const float y = ((x < 0.f ? x : -x) + kInterval) * kNumIntervals;
@@ -243,32 +246,38 @@ private:
 
     // Interpolates animation durations using their respective weights, to
     // find the loop cycle duration that matches blend_ratio_.
-    const float loop_duration =
-        sampler_l.animation.duration() * sampler_l.weight +
+    const float loop_duration = sampler_l.animation.duration() * sampler_l.weight + 
         sampler_r.animation.duration() * sampler_r.weight;
 
     // Finally finds the speed coefficient for all samplers.
     const float inv_loop_duration = 1.f / loop_duration;
-    for (auto& sampler : samplers_) {
+
+    for (auto& sampler : samplers_) 
+    {
       const float speed = sampler.animation.duration() * inv_loop_duration;
       sampler.controller.set_playback_speed(speed);
     }
   }
 
-  virtual bool OnDisplay(ozz::sample::Renderer* _renderer) {
-    return _renderer->DrawPosture(skeleton_, make_span(models_),
-                                  ozz::math::Float4x4::identity());
+  virtual bool OnDisplay(ozz::sample::Renderer* _renderer) 
+  {
+    return _renderer->DrawPosture(skeleton_, make_span(models_), ozz::math::Float4x4::identity());
   }
 
-  virtual bool OnGui(ozz::sample::ImGui* _im_gui) {
+  virtual bool OnGui(ozz::sample::ImGui* _im_gui) 
+  {
     // Exposes blending parameters.
     {
       static bool open = true;
       ozz::sample::ImGui::OpenClose oc(_im_gui, "Blending parameters", &open);
-      if (open) {
-        if (_im_gui->DoCheckBox("Manual settings", &manual_) && !manual_) {
+
+      if (open) 
+      {
+        if (_im_gui->DoCheckBox("Manual settings", &manual_) && !manual_) 
+        {
           // Check-box state was changed, reset parameters.
-          for (auto& sampler : samplers_) {
+          for (auto& sampler : samplers_) 
+          {
             sampler.controller.Reset();
           }
         }
@@ -277,10 +286,10 @@ private:
         std::snprintf(label, sizeof(label), "Blend ratio: %.2f", blend_ratio_);
         _im_gui->DoSlider(label, 0.f, 1.f, &blend_ratio_, 1.f, !manual_);
 
-        for (size_t i = 0; i < kNumLayers; ++i) {
+        for (size_t i = 0; i < kNumLayers; ++i) 
+        {
           Sampler& sampler = samplers_[i];
-          std::snprintf(label, sizeof(label), "Weight %d: %.2f",
-                        static_cast<int>(i), sampler.weight);
+          std::snprintf(label, sizeof(label), "Weight %d: %.2f", static_cast<int>(i), sampler.weight);
           _im_gui->DoSlider(label, 0.f, 1.f, &sampler.weight, 1.f, manual_);
         }
 
@@ -288,26 +297,30 @@ private:
         _im_gui->DoSlider(label, .01f, 1.f, &threshold_);
       }
     }
+
     // Exposes animations runtime playback controls.
     {
       static bool oc_open = true;
       ozz::sample::ImGui::OpenClose oc(_im_gui, "Animation control", &oc_open);
-      if (oc_open) {
+      if (oc_open) 
+      {
         static bool open[] = {true, true, true};
-        static_assert(OZZ_ARRAY_SIZE(open) == kNumLayers,
-                      "Arrays size mismatch");
+        static_assert(OZZ_ARRAY_SIZE(open) == kNumLayers, "Arrays size mismatch");
         const char* oc_names[] = {"Animation 1", "Animation 2", "Animation 3"};
-        static_assert(OZZ_ARRAY_SIZE(oc_names) == kNumLayers,
-                      "Arrays size mismatch");
-        for (size_t i = 0; i < kNumLayers; ++i) {
+        static_assert(OZZ_ARRAY_SIZE(oc_names) == kNumLayers, "Arrays size mismatch");
+        for (size_t i = 0; i < kNumLayers; ++i) 
+        {
           Sampler& sampler = samplers_[i];
           ozz::sample::ImGui::OpenClose loc(_im_gui, oc_names[i], nullptr);
-          if (open[i]) {
+
+          if (open[i]) 
+          {
             sampler.controller.OnGui(sampler.animation, _im_gui, manual_);
           }
         }
       }
     }
+
     return true;
   }
 
