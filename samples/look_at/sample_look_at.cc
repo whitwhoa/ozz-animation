@@ -577,8 +577,8 @@ const char* kJointNames[] = {
 };
 const size_t kMaxChainLength = OZZ_ARRAY_SIZE(kJointNames);
 
-// Forward vector in head local-space.
-const ozz::math::SimdFloat4 kHeadForward = ozz::math::simd_float4::z_axis();
+// Forward vector in Joint local-space.
+const ozz::math::SimdFloat4 kAimForward = ozz::math::simd_float4::z_axis();
 
 // Defines Up vectors for each joint. This is skeleton/rig dependant.
 const ozz::math::SimdFloat4 kJointUpVectors[] = {
@@ -626,7 +626,8 @@ class LookAtSampleApplication : public ozz::sample::Application {
   ozz::math::Float3 target_;
 
   // Offset of the look at position in (head) joint local-space.
-  ozz::math::Float3 eyes_offset_ = {.07f, .1f, 0.f};
+  //ozz::math::Float3 aim_offset_ = {.07f, .1f, 0.f};
+  ozz::math::Float3 aim_offset_ = {0.f, 0.f, 0.f};
 
   // IK settings
 
@@ -648,7 +649,7 @@ class LookAtSampleApplication : public ozz::sample::Application {
   bool show_skin_ = false;
   bool show_joints_ = false;
   bool show_target_ = true;
-  bool show_eyes_offset_ = false;
+  bool show_aim_offset_ = false;
   bool show_forward_ = false;
 
  protected:
@@ -761,8 +762,8 @@ class LookAtSampleApplication : public ozz::sample::Application {
     // need to be updated between each pass, as joints are ordered from child to
     // parent.
     int previous_joint = ozz::animation::Skeleton::kNoParent;
-    for (int i = 0, joint = joints_chain_[0]; i < chain_length_;
-         ++i, previous_joint = joint, joint = joints_chain_[i]) {
+    for (int i = 0, joint = joints_chain_[0]; i < chain_length_; ++i, previous_joint = joint, joint = joints_chain_[i]) 
+    {
       // Setup the model-space matrix of the joint being processed by IK.
       ik_job.joint = &models_[joint];
 
@@ -777,19 +778,18 @@ class LookAtSampleApplication : public ozz::sample::Application {
       ik_job.weight = chain_weight_ * kPerJointWeights[i];
 
       // Setup offset and forward vector for the current joint being processed.
-      if (i == 0) {
+      if (i == 0) 
+      {
         // First joint, uses global forward and offset.
-        ik_job.offset = ozz::math::simd_float4::Load3PtrU(&eyes_offset_.x);
-        ik_job.forward = kHeadForward;
-      } else {
+        ik_job.offset = ozz::math::simd_float4::Load3PtrU(&aim_offset_.x);
+        ik_job.forward = kAimForward;
+      } 
+      else 
+      {
         // Applies previous correction to "forward" and "offset", before
         // bringing them to model-space (_ms).
-        const ozz::math::SimdFloat4 corrected_forward_ms =
-            TransformVector(models_[previous_joint],
-                            TransformVector(correction, ik_job.forward));
-        const ozz::math::SimdFloat4 corrected_offset_ms =
-            TransformPoint(models_[previous_joint],
-                           TransformVector(correction, ik_job.offset));
+        const ozz::math::SimdFloat4 corrected_forward_ms = TransformVector(models_[previous_joint], TransformVector(correction, ik_job.forward));
+        const ozz::math::SimdFloat4 corrected_offset_ms = TransformPoint(models_[previous_joint], TransformVector(correction, ik_job.offset));
 
         // Brings "forward" and "offset" to joint local-space
         const ozz::math::Float4x4 inv_joint = Invert(models_[joint]);
@@ -798,11 +798,11 @@ class LookAtSampleApplication : public ozz::sample::Application {
       }
 
       // Runs IK aim job.
-      if (!ik_job.Run()) return false;
+      if (!ik_job.Run()) 
+          return false;
 
       // Apply IK quaternion to its respective local-space transforms.
-      ozz::sample::MultiplySoATransformQuaternion(joint, correction,
-                                                  make_span(locals_));
+      ozz::sample::MultiplySoATransformQuaternion(joint, correction, make_span(locals_));
     }
 
     // Skeleton model-space matrices need to be updated again. This re-uses the
@@ -873,16 +873,18 @@ class LookAtSampleApplication : public ozz::sample::Application {
       }
     }
 
-    if (show_eyes_offset_ || show_forward_) {
-      const int head = joints_chain_[0];
-      const ozz::math::Float4x4 offset =
-          models_[head] * ozz::math::Float4x4::Translation(eyes_offset_);
-      if (show_eyes_offset_) {
+    if (show_aim_offset_ || show_forward_) 
+    {
+      const int first_joint = joints_chain_[0];
+      const ozz::math::Float4x4 offset = models_[first_joint] * ozz::math::Float4x4::Translation(aim_offset_);
+      if (show_aim_offset_)
+      {
         success &= _renderer->DrawAxes(offset * kAxesScale);
       }
-      if (show_forward_) {
+      if (show_forward_) 
+      {
         ozz::math::Float3 forward;
-        ozz::math::Store3PtrU(kHeadForward, &forward.x);
+        ozz::math::Store3PtrU(kAimForward, &forward.x);
         ozz::math::Float3 line[2] = {{0, 0, 0}, forward * 10};
         success &= _renderer->DrawLines(line, ozz::sample::kWhite, offset);
       }
@@ -934,15 +936,15 @@ class LookAtSampleApplication : public ozz::sample::Application {
 
     {  // Offset position
       static bool opened = true;
-      ozz::sample::ImGui::OpenClose oc(_im_gui, "Eyes offset", &opened);
+      ozz::sample::ImGui::OpenClose oc(_im_gui, "Aim offset", &opened);
       if (opened) {
         const float kOffsetRange = .5f;
-        snprintf(label, sizeof(label), "x %.2g", eyes_offset_.x);
-        _im_gui->DoSlider(label, -kOffsetRange, kOffsetRange, &eyes_offset_.x);
-        snprintf(label, sizeof(label), "y %.2g", eyes_offset_.y);
-        _im_gui->DoSlider(label, -kOffsetRange, kOffsetRange, &eyes_offset_.y);
-        snprintf(label, sizeof(label), "z %.2g", eyes_offset_.z);
-        _im_gui->DoSlider(label, -kOffsetRange, kOffsetRange, &eyes_offset_.z);
+        snprintf(label, sizeof(label), "x %.2g", aim_offset_.x);
+        _im_gui->DoSlider(label, -kOffsetRange, kOffsetRange, &aim_offset_.x);
+        snprintf(label, sizeof(label), "y %.2g", aim_offset_.y);
+        _im_gui->DoSlider(label, -kOffsetRange, kOffsetRange, &aim_offset_.y);
+        snprintf(label, sizeof(label), "z %.2g", aim_offset_.z);
+        _im_gui->DoSlider(label, -kOffsetRange, kOffsetRange, &aim_offset_.z);
       }
     }
 
@@ -951,7 +953,7 @@ class LookAtSampleApplication : public ozz::sample::Application {
       _im_gui->DoCheckBox("Show skin", &show_skin_);
       _im_gui->DoCheckBox("Show joints", &show_joints_);
       _im_gui->DoCheckBox("Show target", &show_target_);
-      _im_gui->DoCheckBox("Show eyes offset", &show_eyes_offset_);
+      _im_gui->DoCheckBox("Show aim offset", &show_aim_offset_);
       _im_gui->DoCheckBox("Show forward", &show_forward_);
     }
 
