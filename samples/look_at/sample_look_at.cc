@@ -569,8 +569,8 @@ OZZ_OPTIONS_DECLARE_STRING(animation,
 // Joints must be from the same hierarchy (all ancestors of the first joint
 // listed) and ordered from child to parent.
 const char* kJointNames[] = {
-    "mixamorig:Head", 
-    "mixamorig:Neck",
+    //"mixamorig:Head", 
+    //"mixamorig:Neck",
     "mixamorig:Spine2", 
     "mixamorig:Spine1", 
     "mixamorig:Spine"
@@ -583,11 +583,12 @@ const ozz::math::SimdFloat4 kHeadForward = ozz::math::simd_float4::z_axis();
 // Defines Up vectors for each joint. This is skeleton/rig dependant.
 const ozz::math::SimdFloat4 kJointUpVectors[] = {
     ozz::math::simd_float4::y_axis(), ozz::math::simd_float4::y_axis(),
-    ozz::math::simd_float4::y_axis(), ozz::math::simd_float4::y_axis(),
     ozz::math::simd_float4::y_axis()};
 static_assert(OZZ_ARRAY_SIZE(kJointUpVectors) == kMaxChainLength, "Array size mismatch.");
 
-const float kPerJointWeights[] = {0.10f, 0.20f, 0.45f, 0.70f, 0.90f};
+//const float kPerJointWeights[] = {0.10f, 0.20f, 0.45f, 0.70f, 0.90f};
+const float kPerJointWeights[] = {0.5f, 0.5f, 1.f};
+//const float kPerJointWeights[] = {1.f, 1.f, 1.f};
 static_assert(OZZ_ARRAY_SIZE(kPerJointWeights) == kMaxChainLength, "Array size mismatch.");
 
 class LookAtSampleApplication : public ozz::sample::Application {
