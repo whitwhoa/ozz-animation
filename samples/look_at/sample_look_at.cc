@@ -587,7 +587,7 @@ const ozz::math::SimdFloat4 kJointUpVectors[] = {
 static_assert(OZZ_ARRAY_SIZE(kJointUpVectors) == kMaxChainLength, "Array size mismatch.");
 
 //const float kPerJointWeights[] = {0.10f, 0.20f, 0.45f, 0.70f, 0.90f};
-const float kPerJointWeights[] = {0.5f, 0.5f, 1.f};
+const float kPerJointWeights[] = {0.34f, 0.33f, 0.33f};
 //const float kPerJointWeights[] = {1.f, 1.f, 1.f};
 static_assert(OZZ_ARRAY_SIZE(kPerJointWeights) == kMaxChainLength, "Array size mismatch.");
 
@@ -621,13 +621,16 @@ class LookAtSampleApplication : public ozz::sample::Application {
   // Sample settings
 
   // Target position management.
+  //ozz::math::Float3 target_offset_ = {.2f, 1.5f, -.3f};
   ozz::math::Float3 target_offset_ = {.2f, 1.5f, -.3f};
   float target_extent_ = 1.f;
   ozz::math::Float3 target_;
 
   // Offset of the look at position in (head) joint local-space.
   //ozz::math::Float3 aim_offset_ = {.07f, .1f, 0.f};
-  ozz::math::Float3 aim_offset_ = {0.f, 0.f, 0.f};
+  //ozz::math::Float3 aim_offset_ = {0.f, 0.f, 0.f};
+  //ozz::math::Float3 aim_offset_ = {0.32f, 0.29f, 0.033f};
+  ozz::math::Float3 aim_offset_ = {0.71f, 0.24f, 0.f};
 
   // IK settings
 
@@ -832,11 +835,22 @@ class LookAtSampleApplication : public ozz::sample::Application {
   }
 
   // Sample arbitrary target animation implementation.
-  bool MoveTarget(float _time) {
-    const ozz::math::Float3 animated_target(std::sin(_time * .5f),
-                                            std::cos(_time * .25f),
-                                            std::cos(_time) * .5f + .5f);
-    target_ = target_offset_ + animated_target * target_extent_;
+  //bool MoveTarget(float _time) 
+  bool MoveTarget(float _time) 
+  {
+    //const ozz::math::Float3 animated_target(std::sin(_time * .5f),
+    //                                        std::cos(_time * .25f),
+    //                                        std::cos(_time) * .5f + .5f);
+
+      const ozz::math::Float3 animated_target(0.f,
+                                            1.f + (std::cos(_time * 0.5f) * 4.f),
+                                            2.f);
+
+   //const ozz::math::Float3 animated_target = {0.f, 6.f, 2.f};
+
+    //target_ = target_offset_ + animated_target * target_extent_;
+    target_ = animated_target * target_extent_;
+
     return true;
   }
 
@@ -938,7 +952,7 @@ class LookAtSampleApplication : public ozz::sample::Application {
       static bool opened = true;
       ozz::sample::ImGui::OpenClose oc(_im_gui, "Aim offset", &opened);
       if (opened) {
-        const float kOffsetRange = .5f;
+        const float kOffsetRange = 2.5f;
         snprintf(label, sizeof(label), "x %.2g", aim_offset_.x);
         _im_gui->DoSlider(label, -kOffsetRange, kOffsetRange, &aim_offset_.x);
         snprintf(label, sizeof(label), "y %.2g", aim_offset_.y);
