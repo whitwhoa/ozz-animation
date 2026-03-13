@@ -61,13 +61,175 @@ OZZ_OPTIONS_DECLARE_STRING(
     "Path to the upper body animation (ozz archive format).",
     "media/animation_partial.ozz", false)
 
-class PartialBlendSampleApplication : public ozz::sample::Application {
+class PartialBlendSampleApplication : public ozz::sample::Application 
+{
+ private:
+  // Runtime skeleton.
+  ozz::animation::Skeleton skeleton_;
+
+  // The number of layers to blend.
+  static constexpr size_t kLowerBody = 0;
+  static constexpr size_t kUpperBody = 1;
+  static constexpr size_t kNumLayers = 2;
+
+  // Sampler structure contains all the data required to sample a single
+  // animation.
+  struct Sampler 
+  {
+    // Constructor, default initialization.
+    Sampler() : weight_setting(1.f), joint_weight_setting(1.f) {}
+
+    // Playback animation controller. This is a utility class that helps with
+    // controlling animation playback time.
+    ozz::sample::PlaybackController controller;
+
+    // Blending weight_setting for the layer.
+    float weight_setting;
+
+    // Blending weight_setting setting of the joints of this layer that are
+    // affected
+    // by the masking.
+    float joint_weight_setting;
+
+    // Runtime animation.
+    ozz::animation::Animation animation;
+
+    // Sampling context.
+    ozz::animation::SamplingJob::Context context;
+
+    // Buffer of local transforms as sampled from animation_.
+    ozz::vector<ozz::math::SoaTransform> locals;
+
+    // Per-joint weights used to define the partial animation mask. Allows to
+    // select which joints are considered during blending, and their individual
+    // weight_setting.
+    ozz::vector<ozz::math::SimdFloat4> joint_weights;
+  } samplers_[kNumLayers];  // kNumLayers animations to blend.
+
+  // Index of the joint at the base of the upper body hierarchy.
+  int upper_body_root_ = 0;
+
+  // Blending job rest pose threshold.
+  float threshold_ = ozz::animation::BlendingJob().threshold;
+
+  // Buffer of local transforms which stores the blending result.
+  ozz::vector<ozz::math::SoaTransform> locals_;
+
+  // Buffer of model space matrices. These are computed by the local-to-model
+  // job after the blending stage.
+  ozz::vector<ozz::math::Float4x4> models_;
+
+
  protected:
+
+  // Helper functor used to set weights while traversing joints hierarchy.
+  struct WeightSetupIterator 
+  {
+    ozz::vector<ozz::math::SimdFloat4>* weights;
+    float weight_setting;
+
+    WeightSetupIterator(ozz::vector<ozz::math::SimdFloat4>* _weights, float _weight_setting) : 
+        weights(_weights), 
+        weight_setting(_weight_setting) 
+    {}
+
+    void operator()(int _joint, int) 
+    {
+      ozz::math::SimdFloat4& soa_weight = weights->at(_joint / 4);
+      soa_weight = ozz::math::SetI(soa_weight, ozz::math::simd_float4::Load1(weight_setting), _joint % 4);
+    }
+
+  };
+
+  void SetupPerJointWeights() 
+  {
+    // Setup partial animation mask. This mask is defined by a weight_setting
+    // assigned to each joint of the hierarchy. Joint to disable are set to a
+    // weight_setting of 0.f, and enabled joints are set to 1.f.
+    // Per-joint weights of lower and upper body layers have opposed values
+    // (weight_setting and 1 - weight_setting) in order for a layer to select
+    // joints that are rejected by the other layer.
+    Sampler& lower_body_sampler = samplers_[kLowerBody];
+    Sampler& upper_body_sampler = samplers_[kUpperBody];
+
+    // Disables all joints: set all weights to 0.
+    for (int i = 0; i < skeleton_.num_soa_joints(); ++i) 
+    {
+      lower_body_sampler.joint_weights[i] = ozz::math::simd_float4::one();
+      upper_body_sampler.joint_weights[i] = ozz::math::simd_float4::zero();
+    }
+
+    // Sets the weight_setting of all the joints children of the lower and upper
+    // body weights. Note that they are stored in SoA format.
+    WeightSetupIterator lower_it(&lower_body_sampler.joint_weights, lower_body_sampler.joint_weight_setting);
+    ozz::animation::IterateJointsDF(skeleton_, lower_it, upper_body_root_);
+
+    WeightSetupIterator upper_it(&upper_body_sampler.joint_weights, upper_body_sampler.joint_weight_setting);
+    ozz::animation::IterateJointsDF(skeleton_, upper_it, upper_body_root_);
+  }
+
+    virtual bool OnInitialize() 
+    {
+        // Reading skeleton.
+        if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) 
+            return false;
+        
+        const int num_joints = skeleton_.num_joints();
+        const int num_soa_joints = skeleton_.num_soa_joints();
+
+        // Reading animations.
+        const char* filenames[] = {OPTIONS_lower_body_animation,
+                                    OPTIONS_upper_body_animation};
+        for (size_t i = 0; i < kNumLayers; ++i) 
+        {
+            Sampler& sampler = samplers_[i];
+
+            if (!ozz::sample::LoadAnimation(filenames[i], &sampler.animation)) 
+                return false;
+
+            // Allocates sampler runtime buffers.
+            sampler.locals.resize(num_soa_joints);
+
+            // Allocates per-joint weights used for the partial animation. Note that
+            // this is a Soa structure.
+            sampler.joint_weights.resize(num_soa_joints);
+
+            // Allocates a context that matches animation requirements.
+            sampler.context.Resize(num_joints);
+        }
+
+        // Default weight settings.
+        Sampler& lower_body_sampler = samplers_[kLowerBody];
+        lower_body_sampler.weight_setting = 1.f;
+        lower_body_sampler.joint_weight_setting = 0.f;
+
+        Sampler& upper_body_sampler = samplers_[kUpperBody];
+        upper_body_sampler.weight_setting = 1.f;
+        upper_body_sampler.joint_weight_setting = 1.f;
+
+        // Allocates local space runtime buffers of blended data.
+        locals_.resize(num_soa_joints);
+
+        // Allocates model space runtime buffers of blended data.
+        models_.resize(num_joints);
+
+        // Finds the "Spine1" joint in the joint hierarchy.
+        upper_body_root_ = FindJoint(skeleton_, "Spine1");
+        if (upper_body_root_ < 0)
+            return false;
+
+        SetupPerJointWeights();
+
+        return true;
+  }
+
   // Updates current animation time and skeleton pose.
-  virtual bool OnUpdate(float _dt, float) {
+  virtual bool OnUpdate(float _dt, float) 
+  {
     // Updates and samples both animations to their respective local space
     // transform buffers.
-    for (size_t i = 0; i < kNumLayers; ++i) {
+    for (size_t i = 0; i < kNumLayers; ++i) 
+    {
       Sampler& sampler = samplers_[i];
 
       // Updates animations time.
@@ -81,9 +243,9 @@ class PartialBlendSampleApplication : public ozz::sample::Application {
       sampling_job.output = make_span(sampler.locals);
 
       // Samples animation.
-      if (!sampling_job.Run()) {
+      if (!sampling_job.Run())
         return false;
-      }
+
     }
 
     // Blends animations.
@@ -93,7 +255,8 @@ class PartialBlendSampleApplication : public ozz::sample::Application {
 
     // Prepares blending layers.
     ozz::animation::BlendingJob::Layer layers[kNumLayers];
-    for (size_t i = 0; i < kNumLayers; ++i) {
+    for (size_t i = 0; i < kNumLayers; ++i) 
+    {
       layers[i].transform = make_span(samplers_[i].locals);
       layers[i].weight = samplers_[i].weight_setting;
 
@@ -109,9 +272,8 @@ class PartialBlendSampleApplication : public ozz::sample::Application {
     blend_job.output = make_span(locals_);
 
     // Blends.
-    if (!blend_job.Run()) {
+    if (!blend_job.Run())
       return false;
-    }
 
     // Converts from local space to model space matrices.
     // Gets the output of the blending stage, and converts it to model space.
@@ -123,113 +285,18 @@ class PartialBlendSampleApplication : public ozz::sample::Application {
     ltm_job.output = make_span(models_);
 
     // Run ltm job.
-    if (!ltm_job.Run()) {
+    if (!ltm_job.Run())
       return false;
-    }
+
 
     return true;
   }
 
-  virtual bool OnDisplay(ozz::sample::Renderer* _renderer) {
-    return _renderer->DrawPosture(skeleton_, make_span(models_),
-                                  ozz::math::Float4x4::identity());
+  virtual bool OnDisplay(ozz::sample::Renderer* _renderer) 
+  {
+    return _renderer->DrawPosture(skeleton_, make_span(models_), ozz::math::Float4x4::identity());
   }
 
-  virtual bool OnInitialize() {
-    // Reading skeleton.
-    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) {
-      return false;
-    }
-    const int num_joints = skeleton_.num_joints();
-    const int num_soa_joints = skeleton_.num_soa_joints();
-
-    // Reading animations.
-    const char* filenames[] = {OPTIONS_lower_body_animation,
-                               OPTIONS_upper_body_animation};
-    for (size_t i = 0; i < kNumLayers; ++i) {
-      Sampler& sampler = samplers_[i];
-
-      if (!ozz::sample::LoadAnimation(filenames[i], &sampler.animation)) {
-        return false;
-      }
-
-      // Allocates sampler runtime buffers.
-      sampler.locals.resize(num_soa_joints);
-
-      // Allocates per-joint weights used for the partial animation. Note that
-      // this is a Soa structure.
-      sampler.joint_weights.resize(num_soa_joints);
-
-      // Allocates a context that matches animation requirements.
-      sampler.context.Resize(num_joints);
-    }
-
-    // Default weight settings.
-    Sampler& lower_body_sampler = samplers_[kLowerBody];
-    lower_body_sampler.weight_setting = 1.f;
-    lower_body_sampler.joint_weight_setting = 0.f;
-
-    Sampler& upper_body_sampler = samplers_[kUpperBody];
-    upper_body_sampler.weight_setting = 1.f;
-    upper_body_sampler.joint_weight_setting = 1.f;
-
-    // Allocates local space runtime buffers of blended data.
-    locals_.resize(num_soa_joints);
-
-    // Allocates model space runtime buffers of blended data.
-    models_.resize(num_joints);
-
-    // Finds the "Spine1" joint in the joint hierarchy.
-    upper_body_root_ = FindJoint(skeleton_, "Spine1");
-    if (upper_body_root_ < 0) {
-      return false;
-    }
-    SetupPerJointWeights();
-
-    return true;
-  }
-
-  // Helper functor used to set weights while traversing joints hierarchy.
-  struct WeightSetupIterator {
-    WeightSetupIterator(ozz::vector<ozz::math::SimdFloat4>* _weights,
-                        float _weight_setting)
-        : weights(_weights), weight_setting(_weight_setting) {}
-    void operator()(int _joint, int) {
-      ozz::math::SimdFloat4& soa_weight = weights->at(_joint / 4);
-      soa_weight = ozz::math::SetI(
-          soa_weight, ozz::math::simd_float4::Load1(weight_setting),
-          _joint % 4);
-    }
-    ozz::vector<ozz::math::SimdFloat4>* weights;
-    float weight_setting;
-  };
-
-  void SetupPerJointWeights() {
-    // Setup partial animation mask. This mask is defined by a weight_setting
-    // assigned to each joint of the hierarchy. Joint to disable are set to a
-    // weight_setting of 0.f, and enabled joints are set to 1.f.
-    // Per-joint weights of lower and upper body layers have opposed values
-    // (weight_setting and 1 - weight_setting) in order for a layer to select
-    // joints that are rejected by the other layer.
-    Sampler& lower_body_sampler = samplers_[kLowerBody];
-    Sampler& upper_body_sampler = samplers_[kUpperBody];
-
-    // Disables all joints: set all weights to 0.
-    for (int i = 0; i < skeleton_.num_soa_joints(); ++i) {
-      lower_body_sampler.joint_weights[i] = ozz::math::simd_float4::one();
-      upper_body_sampler.joint_weights[i] = ozz::math::simd_float4::zero();
-    }
-
-    // Sets the weight_setting of all the joints children of the lower and upper
-    // body weights. Note that they are stored in SoA format.
-    WeightSetupIterator lower_it(&lower_body_sampler.joint_weights,
-                                 lower_body_sampler.joint_weight_setting);
-    ozz::animation::IterateJointsDF(skeleton_, lower_it, upper_body_root_);
-
-    WeightSetupIterator upper_it(&upper_body_sampler.joint_weights,
-                                 upper_body_sampler.joint_weight_setting);
-    ozz::animation::IterateJointsDF(skeleton_, upper_it, upper_body_root_);
-  }
 
   virtual bool OnGui(ozz::sample::ImGui* _im_gui) {
     // Exposes blending parameters.
@@ -322,68 +389,16 @@ class PartialBlendSampleApplication : public ozz::sample::Application {
     return true;
   }
 
-  virtual void GetSceneBounds(ozz::math::Box* _bound) const {
-    ozz::sample::ComputePostureBounds(make_span(models_),
-                                      ozz::math::Float4x4::identity(), _bound);
+  virtual void GetSceneBounds(ozz::math::Box* _bound) const 
+  {
+    ozz::sample::ComputePostureBounds(make_span(models_), ozz::math::Float4x4::identity(), _bound);
   }
 
- private:
-  // Runtime skeleton.
-  ozz::animation::Skeleton skeleton_;
 
-  // The number of layers to blend.
-  static constexpr size_t kLowerBody = 0;
-  static constexpr size_t kUpperBody = 1;
-  static constexpr size_t kNumLayers = 2;
-
-  // Sampler structure contains all the data required to sample a single
-  // animation.
-  struct Sampler {
-    // Constructor, default initialization.
-    Sampler() : weight_setting(1.f), joint_weight_setting(1.f) {}
-
-    // Playback animation controller. This is a utility class that helps with
-    // controlling animation playback time.
-    ozz::sample::PlaybackController controller;
-
-    // Blending weight_setting for the layer.
-    float weight_setting;
-
-    // Blending weight_setting setting of the joints of this layer that are
-    // affected
-    // by the masking.
-    float joint_weight_setting;
-
-    // Runtime animation.
-    ozz::animation::Animation animation;
-
-    // Sampling context.
-    ozz::animation::SamplingJob::Context context;
-
-    // Buffer of local transforms as sampled from animation_.
-    ozz::vector<ozz::math::SoaTransform> locals;
-
-    // Per-joint weights used to define the partial animation mask. Allows to
-    // select which joints are considered during blending, and their individual
-    // weight_setting.
-    ozz::vector<ozz::math::SimdFloat4> joint_weights;
-  } samplers_[kNumLayers];  // kNumLayers animations to blend.
-
-  // Index of the joint at the base of the upper body hierarchy.
-  int upper_body_root_ = 0;
-
-  // Blending job rest pose threshold.
-  float threshold_ = ozz::animation::BlendingJob().threshold;
-
-  // Buffer of local transforms which stores the blending result.
-  ozz::vector<ozz::math::SoaTransform> locals_;
-
-  // Buffer of model space matrices. These are computed by the local-to-model
-  // job after the blending stage.
-  ozz::vector<ozz::math::Float4x4> models_;
 };
 
-int main(int _argc, const char** _argv) {
+int main(int _argc, const char** _argv) 
+{
   const char* title = "Ozz-animation sample: Partial animations blending";
   return PartialBlendSampleApplication().Run(_argc, _argv, "1.0", title);
 }

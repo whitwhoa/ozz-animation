@@ -587,8 +587,8 @@ const ozz::math::SimdFloat4 kJointUpVectors[] = {
 static_assert(OZZ_ARRAY_SIZE(kJointUpVectors) == kMaxChainLength, "Array size mismatch.");
 
 //const float kPerJointWeights[] = {0.10f, 0.20f, 0.45f, 0.70f, 0.90f};
-const float kPerJointWeights[] = {0.34f, 0.33f, 0.33f};
-//const float kPerJointWeights[] = {1.f, 1.f, 1.f};
+//const float kPerJointWeights[] = {1.f, 0.33f, 0.33f};
+const float kPerJointWeights[] = {0.25f, 0.35f, 1.0f};
 static_assert(OZZ_ARRAY_SIZE(kPerJointWeights) == kMaxChainLength, "Array size mismatch.");
 
 class LookAtSampleApplication : public ozz::sample::Application {
@@ -628,9 +628,9 @@ class LookAtSampleApplication : public ozz::sample::Application {
 
   // Offset of the look at position in (head) joint local-space.
   //ozz::math::Float3 aim_offset_ = {.07f, .1f, 0.f};
-  //ozz::math::Float3 aim_offset_ = {0.f, 0.f, 0.f};
+  ozz::math::Float3 aim_offset_ = {0.f, 0.f, 0.f};
   //ozz::math::Float3 aim_offset_ = {0.32f, 0.29f, 0.033f};
-  ozz::math::Float3 aim_offset_ = {0.71f, 0.24f, 0.f};
+  //ozz::math::Float3 aim_offset_ = {0.71f, 0.24f, 0.f};
 
   // IK settings
 
