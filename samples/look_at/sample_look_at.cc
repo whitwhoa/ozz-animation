@@ -1005,7 +1005,10 @@
 
 
 
-
+/*
+* THIS IS THE WORKING LOOK AT EXAMPLE. Commented out to use this project to hack around
+* at trying to do the bone pitch rotation without all the ik logic
+* 
 #include <cstring>
 #include <cmath>
 
@@ -1043,8 +1046,7 @@ OZZ_OPTIONS_DECLARE_STRING(animation,
 // Defines IK chain joint names.
 // Joints must be from the same hierarchy (all ancestors of the first joint
 // listed) and ordered from child to parent.
-const char* kJointNames[] = {"mixamorig:Spine2", "mixamorig:Spine1",
-                             "mixamorig:Spine"};
+const char* kJointNames[] = {"mixamorig:Spine2", "mixamorig:Spine1", "mixamorig:Spine"};
 const size_t kMaxChainLength = OZZ_ARRAY_SIZE(kJointNames);
 
 // Target "gameplay" frame in model/world space used for calibration.
@@ -1055,10 +1057,10 @@ const ozz::math::SimdFloat4 kModelAimUp = ozz::math::simd_float4::y_axis();
 // Distributed chain weights.
 // Last joint is 1.0f so the chain can still converge.
 const float kPerJointWeights[] = {0.25f, 0.35f, 1.0f};
-static_assert(OZZ_ARRAY_SIZE(kPerJointWeights) == kMaxChainLength,
-              "Array size mismatch.");
+static_assert(OZZ_ARRAY_SIZE(kPerJointWeights) == kMaxChainLength, "Array size mismatch.");
 
-class LookAtSampleApplication : public ozz::sample::Application {
+class LookAtSampleApplication : public ozz::sample::Application 
+{
  private:
   // Playback animation controller.
   ozz::sample::PlaybackController controller_;
@@ -1107,29 +1109,29 @@ class LookAtSampleApplication : public ozz::sample::Application {
   bool show_calibrated_basis_ = true;
 
  private:
-  bool ValidateJointsOrder(const ozz::animation::Skeleton& _skeleton,
-                           ozz::span<const int> _joints) {
+  bool ValidateJointsOrder(const ozz::animation::Skeleton& _skeleton, ozz::span<const int> _joints) 
+  {
     const size_t count = _joints.size();
-    if (count == 0) {
+
+    if (count == 0)
       return true;
-    }
+
 
     size_t i = 1;
     for (int joint = _joints[0], parent = _skeleton.joint_parents()[joint];
          i != count && joint != ozz::animation::Skeleton::kNoParent;
-         joint = parent, parent = _skeleton.joint_parents()[joint]) {
-      if (parent == _joints[i]) {
+         joint = parent, parent = _skeleton.joint_parents()[joint]) 
+    {
+      if (parent == _joints[i]) 
         ++i;
-      }
     }
 
     return count == i;
   }
 
-  bool MoveTarget(float _time) {
-    const ozz::math::Float3 animated_target(
-        0.f, 1.f + (std::cos(_time * 0.5f) * 4.f), 2.f);
-
+  bool MoveTarget(float _time) 
+  {
+    const ozz::math::Float3 animated_target(0.f, 1.f + (std::cos(_time * 0.5f) * 4.f), 2.f);
     target_ = target_offset_ + animated_target * target_extent_;
     return true;
   }
@@ -1137,7 +1139,8 @@ class LookAtSampleApplication : public ozz::sample::Application {
   // Samples the loaded animation at ratio 0.0 and computes, for each spine
   // joint, the local-space forward/up vectors that correspond to the desired
   // model-space aim frame.
-  bool CalibrateAimBasisFromReferencePose() {
+  bool CalibrateAimBasisFromReferencePose() 
+  {
     const int num_joints = skeleton_.num_joints();
     const int num_soa_joints = skeleton_.num_soa_joints();
 
@@ -1157,7 +1160,8 @@ class LookAtSampleApplication : public ozz::sample::Application {
     sampling_job.ratio = 0.f;
     sampling_job.output = make_span(calib_locals);
 
-    if (!sampling_job.Run()) {
+    if (!sampling_job.Run()) 
+    {
       ozz::log::Err() << "Failed to sample calibration pose." << std::endl;
       return false;
     }
@@ -1168,9 +1172,9 @@ class LookAtSampleApplication : public ozz::sample::Application {
     ltm_job.input = make_span(calib_locals);
     ltm_job.output = make_span(calib_models);
 
-    if (!ltm_job.Run()) {
-      ozz::log::Err() << "Failed to build calibration model transforms."
-                      << std::endl;
+    if (!ltm_job.Run()) 
+    {
+      ozz::log::Err() << "Failed to build calibration model transforms." << std::endl;
       return false;
     }
 
@@ -1189,19 +1193,20 @@ class LookAtSampleApplication : public ozz::sample::Application {
   }
 
  protected:
-  virtual bool OnInitialize() {
+  virtual bool OnInitialize() 
+  {
     // Reading skeleton.
-    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) {
+    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_)) 
       return false;
-    }
 
     // Look for each joint in the chain.
     int found = 0;
-    for (int i = 0; i < skeleton_.num_joints() && found != kMaxChainLength;
-         ++i) {
+    for (int i = 0; i < skeleton_.num_joints() && found != kMaxChainLength; ++i) 
+    {
       const char* joint_name = skeleton_.joint_names()[i];
 
-      if (std::strcmp(joint_name, kJointNames[found]) == 0) {
+      if (std::strcmp(joint_name, kJointNames[found]) == 0) 
+      {
         joints_chain_[found] = i;
 
         // Restart search.
@@ -1211,19 +1216,16 @@ class LookAtSampleApplication : public ozz::sample::Application {
     }
 
     // Exit if all joints weren't found.
-    if (found != static_cast<int>(kMaxChainLength)) {
-      ozz::log::Err()
-          << "At least a joint wasn't found in the skeleton hierarchy."
-          << std::endl;
+    if (found != static_cast<int>(kMaxChainLength)) 
+    {
+      ozz::log::Err() << "At least a joint wasn't found in the skeleton hierarchy." << std::endl;
       return false;
     }
 
     // Validates joints are ordered child -> parent on the same branch.
-    if (!ValidateJointsOrder(skeleton_, joints_chain_)) {
-      ozz::log::Err()
-          << "Joints aren't properly ordered. They must be from the same "
-             "hierarchy and ordered child to parent."
-          << std::endl;
+    if (!ValidateJointsOrder(skeleton_, joints_chain_)) 
+    {
+      ozz::log::Err() << "Joints aren't properly ordered. They must be from the same hierarchy and ordered child to parent." << std::endl;
       return false;
     }
 
@@ -1238,20 +1240,19 @@ class LookAtSampleApplication : public ozz::sample::Application {
     context_.Resize(num_joints);
 
     // Reading animation.
-    if (!ozz::sample::LoadAnimation(OPTIONS_animation, &animation_)) {
+    if (!ozz::sample::LoadAnimation(OPTIONS_animation, &animation_)) 
       return false;
-    }
 
     // Calibrate local aim basis from the loaded animation at ratio 0.0.
-    if (!CalibrateAimBasisFromReferencePose()) {
+    if (!CalibrateAimBasisFromReferencePose()) 
       return false;
-    }
 
     return true;
   }
 
   // Updates current animation time and skeleton pose.
-  virtual bool OnUpdate(float _dt, float _time) {
+  virtual bool OnUpdate(float _dt, float _time) 
+  {
     // Animates target position.
     MoveTarget(_time);
 
@@ -1265,9 +1266,8 @@ class LookAtSampleApplication : public ozz::sample::Application {
     sampling_job.ratio = controller_.time_ratio();
     sampling_job.output = make_span(locals_);
 
-    if (!sampling_job.Run()) {
+    if (!sampling_job.Run())
       return false;
-    }
 
     // Converts from local-space to model-space matrices.
     ozz::animation::LocalToModelJob ltm_job;
@@ -1275,20 +1275,17 @@ class LookAtSampleApplication : public ozz::sample::Application {
     ltm_job.input = make_span(locals_);
     ltm_job.output = make_span(models_);
 
-    if (!ltm_job.Run()) {
+    if (!ltm_job.Run())
       return false;
-    }
 
     // Early out if IK is disabled.
-    if (!enable_ik_) {
+    if (!enable_ik_)
       return true;
-    }
 
     // IK aim job setup.
     ozz::animation::IKAimJob ik_job;
 
-    // Pole vector and target position are constant for the whole algorithm,
-    // in model-space.
+    // Pole vector and target position are constant for the whole algorithm, in model-space.
     ik_job.pole_vector = kModelAimUp;
     ik_job.target = ozz::math::simd_float4::Load3PtrU(&target_.x);
 
@@ -1298,8 +1295,8 @@ class LookAtSampleApplication : public ozz::sample::Application {
 
     // Iteratively update from child -> parent.
     int previous_joint = ozz::animation::Skeleton::kNoParent;
-    for (int i = 0, joint = joints_chain_[0]; i < chain_length_;
-         ++i, previous_joint = joint, joint = joints_chain_[i]) {
+    for (int i = 0, joint = joints_chain_[0]; i < chain_length_; ++i, previous_joint = joint, joint = joints_chain_[i]) 
+    {
       // Setup the model-space matrix of the joint being processed by IK.
       ik_job.joint = &models_[joint];
 
@@ -1310,20 +1307,17 @@ class LookAtSampleApplication : public ozz::sample::Application {
       ik_job.weight = chain_weight_ * kPerJointWeights[i];
 
       // Setup offset and forward vector for the current joint being processed.
-      if (i == 0) {
+      if (i == 0) 
+      {
         // First joint uses calibrated forward and authored offset.
         ik_job.offset = ozz::math::simd_float4::Load3PtrU(&aim_offset_.x);
         ik_job.forward = joint_aim_forward_[i];
-      } else {
-        // Apply previous correction to forward/offset, bring back to current
-        // joint local-space.
-        const ozz::math::SimdFloat4 corrected_forward_ms =
-            TransformVector(models_[previous_joint],
-                            TransformVector(correction, ik_job.forward));
-
-        const ozz::math::SimdFloat4 corrected_offset_ms =
-            TransformPoint(models_[previous_joint],
-                           TransformVector(correction, ik_job.offset));
+      } 
+      else 
+      {
+        // Apply previous correction to forward/offset, bring back to current joint local-space.
+        const ozz::math::SimdFloat4 corrected_forward_ms = TransformVector(models_[previous_joint], TransformVector(correction, ik_job.forward));
+        const ozz::math::SimdFloat4 corrected_offset_ms = TransformPoint(models_[previous_joint], TransformVector(correction, ik_job.offset));
 
         const ozz::math::Float4x4 inv_joint = Invert(models_[joint]);
         ik_job.forward = TransformVector(inv_joint, corrected_forward_ms);
@@ -1331,20 +1325,18 @@ class LookAtSampleApplication : public ozz::sample::Application {
       }
 
       // Runs IK aim job.
-      if (!ik_job.Run()) {
-        return false;
-      }
+      if (!ik_job.Run()) 
+          return false;
 
       // Apply IK quaternion to its respective local-space transform.
-      ozz::sample::MultiplySoATransformQuaternion(joint, correction,
-                                                  make_span(locals_));
+      ozz::sample::MultiplySoATransformQuaternion(joint, correction, make_span(locals_));
     }
 
     // Skeleton model-space matrices need to be updated again.
     ltm_job.from = previous_joint;
-    if (!ltm_job.Run()) {
+    if (!ltm_job.Run())
       return false;
-    }
+
 
     return true;
   }
@@ -1501,4 +1493,349 @@ class LookAtSampleApplication : public ozz::sample::Application {
 int main(int _argc, const char** _argv) {
   const char* title = "Ozz-animation sample: Look at with calibrated aim basis";
   return LookAtSampleApplication().Run(_argc, _argv, "1.0", title);
+}*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//
+// Simple bone pitch rotate distribution
+//
+#include <cstring>
+#include <cmath>
+
+#include "framework/application.h"
+#include "framework/imgui.h"
+#include "framework/mesh.h"
+#include "framework/renderer.h"
+#include "framework/utils.h"
+
+#include "ozz/animation/runtime/animation.h"
+#include "ozz/animation/runtime/local_to_model_job.h"
+#include "ozz/animation/runtime/sampling_job.h"
+#include "ozz/animation/runtime/skeleton.h"
+
+#include "ozz/base/log.h"
+#include "ozz/base/maths/box.h"
+#include "ozz/base/maths/simd_math.h"
+#include "ozz/base/maths/simd_quaternion.h"
+#include "ozz/base/maths/soa_transform.h"
+#include "ozz/base/maths/vec_float.h"
+
+#include "ozz/options/options.h"
+
+// Skeleton archive can be specified as an option.
+OZZ_OPTIONS_DECLARE_STRING(skeleton,
+                           "Path to the skeleton (ozz archive format).",
+                           "media/ct1.ozz", false)
+
+// Animation archive can be specified as an option.
+OZZ_OPTIONS_DECLARE_STRING(animation,
+                           "Path to the animation (ozz archive format).",
+                           "media/pistol_idle.ozz", false)
+
+// The 3 spine joints we want to rotate for pitch.
+const char* kJointNames[] = {"mixamorig:Spine", "mixamorig:Spine1",
+                             "mixamorig:Spine2"};
+
+const int kChainCount = 3;
+
+// In the calibration pose, define "pitch axis" as model-space +X.
+// This means "looking up/down" rotates around the character's right axis.
+const ozz::math::SimdFloat4 kModelPitchAxis = ozz::math::simd_float4::x_axis();
+
+class SpinePitchSampleApplication : public ozz::sample::Application 
+{
+ private:
+
+  ozz::sample::PlaybackController controller_;
+  ozz::animation::Skeleton skeleton_;
+  ozz::animation::Animation animation_;
+  ozz::animation::SamplingJob::Context context_;
+  ozz::vector<ozz::math::SoaTransform> locals_;
+  ozz::vector<ozz::math::Float4x4> models_;
+
+  // Spine joint indices.
+  int spine_joints_[kChainCount] = {-1, -1, -1};
+
+  // Calibrated local pitch axis for each spine joint.
+  ozz::math::SimdFloat4 local_pitch_axes_[kChainCount];
+
+  // User controls.
+  bool enable_pitch_ = true;
+  float pitch_degrees_ = 0.f;
+  float pitch_weights_[kChainCount] = {0.20f, 0.35f, 0.45f};
+
+  // Display options.
+  bool show_joints_ = false;
+  bool show_axes_ = false;
+  bool show_calibrated_axes_ = true;
+
+ private:
+
+static ozz::math::SimdQuaternion ExtractQuaternionLane(const ozz::math::SoaQuaternion& q, int lane) 
+{
+    float x[4];
+    float y[4];
+    float z[4];
+    float w[4];
+
+    ozz::math::StorePtrU(q.x, x);
+    ozz::math::StorePtrU(q.y, y);
+    ozz::math::StorePtrU(q.z, z);
+    ozz::math::StorePtrU(q.w, w);
+
+    ozz::math::SimdQuaternion out;
+    out.xyzw = ozz::math::simd_float4::Load(x[lane], y[lane], z[lane], w[lane]);
+
+    return out;
+  }
+
+  static void MultiplyJointLocalRotation(int joint, const ozz::math::SimdQuaternion& delta, ozz::span<ozz::math::SoaTransform> transforms) 
+  {
+    const int soa_index = joint / 4;
+    const int lane = joint % 4;
+
+    ozz::math::SoaTransform& t = transforms[soa_index];
+    ozz::math::SimdQuaternion current = ExtractQuaternionLane(t.rotation, lane);
+    const ozz::math::SimdQuaternion result = delta * current;
+
+    t.rotation.x = ozz::math::SetI(t.rotation.x, ozz::math::SplatX(result.xyzw), lane);
+    t.rotation.y = ozz::math::SetI(t.rotation.y, ozz::math::SplatY(result.xyzw), lane);
+    t.rotation.z = ozz::math::SetI(t.rotation.z, ozz::math::SplatZ(result.xyzw), lane);
+    t.rotation.w = ozz::math::SetI(t.rotation.w, ozz::math::SplatW(result.xyzw), lane);
+  }
+
+  int FindJoint(const char* name) const 
+  {
+    for (int i = 0; i < skeleton_.num_joints(); ++i) 
+    {
+      if (std::strcmp(skeleton_.joint_names()[i], name) == 0)
+        return i;
+    }
+
+    return -1;
+  }
+
+  bool CalibratePitchAxesFromReferencePose() 
+  {
+    const int num_joints = skeleton_.num_joints();
+    const int num_soa_joints = skeleton_.num_soa_joints();
+
+    ozz::animation::SamplingJob::Context calib_context;
+    calib_context.Resize(num_joints);
+
+    ozz::vector<ozz::math::SoaTransform> calib_locals;
+    calib_locals.resize(num_soa_joints);
+
+    ozz::vector<ozz::math::Float4x4> calib_models;
+    calib_models.resize(num_joints);
+
+    // Sample first frame / reference pose.
+    ozz::animation::SamplingJob sampling_job;
+    sampling_job.animation = &animation_;
+    sampling_job.context = &calib_context;
+    sampling_job.ratio = 0.f;
+    sampling_job.output = make_span(calib_locals);
+
+    if (!sampling_job.Run()) 
+    {
+      ozz::log::Err() << "Failed to sample calibration pose." << std::endl;
+      return false;
+    }
+
+    ozz::animation::LocalToModelJob ltm_job;
+    ltm_job.skeleton = &skeleton_;
+    ltm_job.input = make_span(calib_locals);
+    ltm_job.output = make_span(calib_models);
+
+    if (!ltm_job.Run()) 
+    {
+      ozz::log::Err() << "Failed to build calibration model transforms." << std::endl;
+      return false;
+    }
+
+    // Convert the desired model-space pitch axis into each joint's local space.
+    for (int i = 0; i < kChainCount; ++i) 
+    {
+      const int joint = spine_joints_[i];
+      const ozz::math::Float4x4 inv_joint = Invert(calib_models[joint]);
+      local_pitch_axes_[i] = ozz::math::Normalize3(TransformVector(inv_joint, kModelPitchAxis));
+    }
+
+    return true;
+  }
+
+  void ApplySpinePitch(float pitch_radians) 
+  {
+    for (int i = 0; i < kChainCount; ++i) 
+    {
+      const int joint = spine_joints_[i];
+      const float joint_pitch = pitch_radians * pitch_weights_[i];
+
+      const ozz::math::SimdQuaternion delta = ozz::math::SimdQuaternion::FromAxisAngle(local_pitch_axes_[i], ozz::math::simd_float4::Load1(joint_pitch));
+
+      MultiplyJointLocalRotation(joint, delta, make_span(locals_));
+    }
+  }
+
+ protected:
+  bool OnInitialize() override 
+  {
+    if (!ozz::sample::LoadSkeleton(OPTIONS_skeleton, &skeleton_))
+      return false;
+
+    if (!ozz::sample::LoadAnimation(OPTIONS_animation, &animation_))
+      return false;
+
+    for (int i = 0; i < kChainCount; ++i) 
+    {
+      spine_joints_[i] = FindJoint(kJointNames[i]);
+
+      if (spine_joints_[i] < 0) 
+      {
+        ozz::log::Err() << "Joint not found: " << kJointNames[i] << std::endl;
+        return false;
+      }
+    }
+
+    locals_.resize(skeleton_.num_soa_joints());
+    models_.resize(skeleton_.num_joints());
+    context_.Resize(skeleton_.num_joints());
+
+    if (!CalibratePitchAxesFromReferencePose())
+      return false;
+
+    return true;
+  }
+
+  bool OnUpdate(float _dt, float /*_time*/) override 
+  {
+    controller_.Update(animation_, _dt);
+
+    // Sample base animation.
+    ozz::animation::SamplingJob sampling_job;
+    sampling_job.animation = &animation_;
+    sampling_job.context = &context_;
+    sampling_job.ratio = controller_.time_ratio();
+    sampling_job.output = make_span(locals_);
+    if (!sampling_job.Run()) 
+      return false;
+
+    // Apply local-space pitch to spine bones.
+    if (enable_pitch_) 
+    {
+      const float pitch_radians = pitch_degrees_ * 3.14159265358979323846f / 180.f;
+      ApplySpinePitch(pitch_radians);
+    }
+
+    // Build model-space matrices from modified locals.
+    ozz::animation::LocalToModelJob ltm_job;
+    ltm_job.skeleton = &skeleton_;
+    ltm_job.input = make_span(locals_);
+    ltm_job.output = make_span(models_);
+    if (!ltm_job.Run())
+      return false;
+
+    return true;
+  }
+
+  bool OnDisplay(ozz::sample::Renderer* _renderer) override 
+  {
+    bool success = true;
+
+    const ozz::math::Float4x4 identity = ozz::math::Float4x4::identity();
+    success &= _renderer->DrawPosture(skeleton_, make_span(models_), identity);
+
+    const float kAxeScale = 0.10f;
+    const ozz::math::Float4x4 kAxesScale = ozz::math::Float4x4::Scaling(ozz::math::simd_float4::Load1(kAxeScale));
+
+    if (show_joints_ || show_axes_) 
+    {
+      for (int i = 0; i < kChainCount; ++i) 
+      {
+        const ozz::math::Float4x4& joint_tm = models_[spine_joints_[i]];
+
+        if (show_axes_) 
+          success &= _renderer->DrawAxes(joint_tm * kAxesScale);
+
+        if (show_joints_) 
+          success &= _renderer->DrawSphereIm(0.02f, joint_tm, ozz::sample::kWhite);
+      }
+    }
+
+    if (show_calibrated_axes_) 
+    {
+      for (int i = 0; i < kChainCount; ++i) 
+      {
+        const ozz::math::Float4x4& joint_tm = models_[spine_joints_[i]];
+
+        ozz::math::Float3 axis;
+        ozz::math::Store3PtrU(local_pitch_axes_[i], &axis.x);
+
+        ozz::math::Float3 line[2] = {{0.f, 0.f, 0.f}, axis * 0.30f};
+
+        success &= _renderer->DrawLines(line, ozz::sample::kGreen, joint_tm);
+      }
+    }
+
+    return success;
+  }
+
+  bool OnGui(ozz::sample::ImGui* _im_gui) override 
+  {
+    char label[64];
+
+    _im_gui->DoCheckBox("Enable pitch", &enable_pitch_);
+
+    snprintf(label, sizeof(label), "Pitch degrees %.2f", pitch_degrees_);
+    _im_gui->DoSlider(label, -80.f, 80.f, &pitch_degrees_);
+
+    snprintf(label, sizeof(label), "Spine weight %.2f", pitch_weights_[0]);
+    _im_gui->DoSlider(label, 0.f, 1.f, &pitch_weights_[0]);
+
+    snprintf(label, sizeof(label), "Spine1 weight %.2f", pitch_weights_[1]);
+    _im_gui->DoSlider(label, 0.f, 1.f, &pitch_weights_[1]);
+
+    snprintf(label, sizeof(label), "Spine2 weight %.2f", pitch_weights_[2]);
+    _im_gui->DoSlider(label, 0.f, 1.f, &pitch_weights_[2]);
+
+    {
+      static bool open = true;
+      ozz::sample::ImGui::OpenClose oc(_im_gui, "Animation control", &open);
+
+      if (open)
+        controller_.OnGui(animation_, _im_gui);
+    }
+
+    _im_gui->DoCheckBox("Show joints", &show_joints_);
+    _im_gui->DoCheckBox("Show axes", &show_axes_);
+    _im_gui->DoCheckBox("Show calibrated axes", &show_calibrated_axes_);
+
+    return true;
+  }
+
+  void GetSceneBounds(ozz::math::Box* _bound) const override 
+  {
+    _bound->min = ozz::math::Float3(-2.f, -2.f, -2.f);
+    _bound->max = ozz::math::Float3(2.f, 2.f, 2.f);
+  }
+};
+
+int main(int _argc, const char** _argv) 
+{
+  const char* title = "Ozz-animation sample: Spine pitch by calibrated local axes";
+  return SpinePitchSampleApplication().Run(_argc, _argv, "1.0", title);
 }
